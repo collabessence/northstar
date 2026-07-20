@@ -12,6 +12,7 @@ export type DealView = {
   temperature: string;
   ownerInitials: string;
   dueLabel: string;
+  notes: string | null;
   lastContactAt: string; // ISO string once serialized to the client
   closedAt: string | null;
   createdAt: string;

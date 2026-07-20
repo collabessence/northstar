@@ -12,9 +12,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
-  Circle,
   Clock3,
   Columns3,
   Command,
@@ -26,8 +24,10 @@ import {
   MessageSquareText,
   MoreHorizontal,
   PanelLeftClose,
+  Pencil,
   Phone,
   Plus,
+  Rows3,
   Search,
   Settings2,
   Sparkles,
@@ -60,6 +60,8 @@ import {
   moveDeal,
   resetWorkspace,
   setTaskCompleted,
+  updateContact,
+  updateDeal,
 } from "./actions";
 import {
   computeCoreMetrics,
@@ -91,6 +93,7 @@ type TaskView = {
   company: string;
   type: string;
   dueLabel: string;
+  dueAt: string | null;
   completed: boolean;
 };
 
@@ -103,12 +106,20 @@ type SnapshotView = {
   avgCycleDays: number | null;
 } | null;
 
+type ActivityEntry = {
+  id: number;
+  message: string;
+  kind: string;
+  createdAt: string;
+};
+
 type ViewName = "Overview" | "Pipeline" | "Contacts" | "Activities" | "Reports";
 
 type DashboardProps = {
   deals: DealView[];
   contacts: ContactView[];
   tasks: TaskView[];
+  activity: ActivityEntry[];
   previousSnapshot: SnapshotView;
 };
 
@@ -140,7 +151,11 @@ function formatDelta(value: number | null) {
   return { label: `${Math.abs(rounded)}%`, positive: rounded >= 0, isNew: false };
 }
 
-export default function CrmDashboard({ deals, contacts, tasks, previousSnapshot }: DashboardProps) {
+function isOverdue(task: TaskView, now: Date) {
+  return !task.completed && Boolean(task.dueAt) && new Date(task.dueAt as string).getTime() <= now.getTime();
+}
+
+export default function CrmDashboard({ deals, contacts, tasks, activity, previousSnapshot }: DashboardProps) {
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -157,6 +172,8 @@ export default function CrmDashboard({ deals, contacts, tasks, previousSnapshot 
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editingDeal, setEditingDeal] = useState<DealView | null>(null);
+  const [editingContact, setEditingContact] = useState<ContactView | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [localDeals, setLocalDeals] = useState(deals);
   const [localTasks, setLocalTasks] = useState(tasks);
@@ -245,6 +262,14 @@ export default function CrmDashboard({ deals, contacts, tasks, previousSnapshot 
     }),
     [metrics, previousSnapshot],
   );
+
+  // Automatic notifications: any incomplete task whose real due date has
+  // already passed becomes a live reminder, computed fresh on every render
+  // rather than needing a background job.
+  const overdueTasks = useMemo(() => {
+    const now = new Date();
+    return localTasks.filter((task) => isOverdue(task, now));
+  }, [localTasks]);
 
   const results = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -453,7 +478,7 @@ export default function CrmDashboard({ deals, contacts, tasks, previousSnapshot 
                 style={{ width: `${Math.min(100, Math.round((metrics.wonValue / 180000) * 100))}%` }}
               />
             </div>
-            <p className="mt-2.5 text-[11px] leading-4 text-[#858b91]">{money(metrics.wonValue, true)} of $180K closed</p>
+            <p className="mt-2.5 text-[11px] leading-4 text-[#858b91]">{money(metrics.wonValue, true)} z celu {money(180000, true)}</p>
           </div>
         </div>
 
@@ -523,9 +548,13 @@ export default function CrmDashboard({ deals, contacts, tasks, previousSnapshot 
                 }}
               >
                 <Bell size={18} />
-                <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#e45c4b] ring-2 ring-white" />
+                {(overdueTasks.length > 0 || activity.length > 0) && (
+                  <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#e45c4b] ring-2 ring-white" />
+                )}
               </button>
-              {notificationOpen && <Notifications onClose={() => setNotificationOpen(false)} />}
+              {notificationOpen && (
+                <Notifications activity={activity} overdueTasks={overdueTasks} onClose={() => setNotificationOpen(false)} />
+              )}
             </div>
             <div className="mx-1 hidden h-6 w-px bg-[#e5e7e9] sm:block" />
             <button
@@ -546,7 +575,9 @@ export default function CrmDashboard({ deals, contacts, tasks, previousSnapshot 
                 <span className="grid h-8 w-8 place-items-center rounded-lg bg-[#efe4d8] text-[11px] font-extrabold text-[#795434]">AM</span>
                 <ChevronDown size={14} className="hidden text-[#8c9298] sm:block" />
               </button>
-              {profileOpen && <ProfileMenu />}
+              {profileOpen && (
+                <ProfileMenu onOpenSettings={() => { setProfileOpen(false); setSettingsOpen(true); }} />
+              )}
             </div>
           </div>
         </header>
@@ -572,7 +603,13 @@ export default function CrmDashboard({ deals, contacts, tasks, previousSnapshot 
             />
           )}
           {activeView === "Pipeline" && (
-            <PipelineView deals={localDeals} onCreate={openCreator} onMove={handleMove} onDelete={handleDeleteDeal} />
+            <PipelineView
+              deals={localDeals}
+              onCreate={openCreator}
+              onMove={handleMove}
+              onDelete={handleDeleteDeal}
+              onEdit={setEditingDeal}
+            />
           )}
           {activeView === "Contacts" && (
             <ContactsView
@@ -580,6 +617,7 @@ export default function CrmDashboard({ deals, contacts, tasks, previousSnapshot 
               deals={localDeals}
               onAdd={() => setContactModalOpen(true)}
               onDelete={handleDeleteContact}
+              onEdit={setEditingContact}
             />
           )}
           {activeView === "Activities" && (
@@ -594,23 +632,33 @@ export default function CrmDashboard({ deals, contacts, tasks, previousSnapshot 
         </main>
       </div>
 
-      {createOpen && (
+      {(createOpen || editingDeal) && (
         <CreateDealModal
           defaultStage={draftStage}
-          onClose={() => setCreateOpen(false)}
+          editingDeal={editingDeal}
+          onClose={() => {
+            setCreateOpen(false);
+            setEditingDeal(null);
+          }}
           onSuccess={(message) => {
             setCreateOpen(false);
+            setEditingDeal(null);
             setToast(message);
             router.refresh();
           }}
         />
       )}
 
-      {contactModalOpen && (
+      {(contactModalOpen || editingContact) && (
         <CreateContactModal
-          onClose={() => setContactModalOpen(false)}
+          editingContact={editingContact}
+          onClose={() => {
+            setContactModalOpen(false);
+            setEditingContact(null);
+          }}
           onSuccess={(message) => {
             setContactModalOpen(false);
+            setEditingContact(null);
             setToast(message);
             router.refresh();
           }}
@@ -710,7 +758,6 @@ function Overview({
   onMove: (id: number, stage: string) => void;
   onLoadSample: () => void;
 }) {
-  const coverage = metrics.wonValue > 0 ? metrics.pipeline / (180000 - metrics.wonValue || 1) : 0;
   const isEmpty = deals.length === 0 && tasks.length === 0;
   return (
     <div className="mx-auto max-w-[1480px] animate-page-in">
@@ -755,7 +802,7 @@ function Overview({
           label="Weighted forecast"
           value={money(metrics.forecast, true)}
           delta={deltas.forecast}
-          note="Against $180K monthly goal"
+          note={`Against ${money(180000, true)} monthly goal`}
           icon={Target}
           accent="violet"
         />
@@ -1080,19 +1127,26 @@ function TasksCard({
   );
 }
 
+type SortKey = "value" | "company" | "lastContact" | "probability";
+
 function PipelineView({
   deals,
   onCreate,
   onMove,
   onDelete,
+  onEdit,
 }: {
   deals: DealView[];
   onCreate: (stage?: string) => void;
   onMove: (id: number, stage: string) => void;
   onDelete: (id: number) => void;
+  onEdit: (deal: DealView) => void;
 }) {
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
+  const [sortKey, setSortKey] = useState<SortKey>("lastContact");
+  const [sortDesc, setSortDesc] = useState(true);
   const openValue = deals.filter((deal) => deal.stage !== "won").reduce((sum, deal) => sum + deal.value, 0);
 
   function drop(event: DragEvent<HTMLDivElement>, stage: string) {
@@ -1101,6 +1155,28 @@ function PipelineView({
     setDraggedId(null);
     setOverStage(null);
   }
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDesc((value) => !value);
+    } else {
+      setSortKey(key);
+      setSortDesc(true);
+    }
+  }
+
+  const sortedDeals = useMemo(() => {
+    const copy = [...deals];
+    copy.sort((a, b) => {
+      let diff = 0;
+      if (sortKey === "value") diff = a.value - b.value;
+      else if (sortKey === "company") diff = a.company.localeCompare(b.company);
+      else if (sortKey === "probability") diff = a.probability - b.probability;
+      else diff = new Date(a.lastContactAt).getTime() - new Date(b.lastContactAt).getTime();
+      return sortDesc ? -diff : diff;
+    });
+    return copy;
+  }, [deals, sortKey, sortDesc]);
 
   return (
     <div className="mx-auto max-w-[1600px] animate-page-in">
@@ -1113,62 +1189,153 @@ function PipelineView({
         }
       />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e5e7e8] bg-white px-4 py-3">
-        <div className="flex items-center gap-2 text-xs font-semibold text-[#667078]">
-          <span className="flex items-center gap-2 rounded-lg bg-[#f4f6f5] px-3 py-2"><UsersRound size={14} /> All owners</span>
-          <span className="hidden items-center gap-2 rounded-lg px-3 py-2 sm:flex"><CalendarDays size={14} /> This quarter</span>
+        <div className="flex items-center gap-1 rounded-lg bg-[#f4f5f6] p-1">
+          <button
+            onClick={() => setViewMode("kanban")}
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-bold transition ${viewMode === "kanban" ? "bg-white text-[#17785a] shadow-sm" : "text-[#767d83]"}`}
+          >
+            <Columns3 size={14} /> Kanban
+          </button>
+          <button
+            onClick={() => setViewMode("list")}
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-bold transition ${viewMode === "list" ? "bg-white text-[#17785a] shadow-sm" : "text-[#767d83]"}`}
+          >
+            <Rows3 size={14} /> Lista
+          </button>
         </div>
-        <p className="flex items-center gap-2 text-[11px] text-[#8b9298]"><GripVertical size={14} /> Drag cards to update their stage</p>
+        {viewMode === "kanban" && (
+          <p className="flex items-center gap-2 text-[11px] text-[#8b9298]"><GripVertical size={14} /> Drag cards to update their stage</p>
+        )}
       </div>
-      <div className="grid items-start gap-3 overflow-x-auto pb-4 xl:grid-cols-4">
-        {stageConfig.map((stage) => {
-          const stageDeals = deals.filter((deal) => deal.stage === stage.key);
-          const total = stageDeals.reduce((sum, deal) => sum + deal.value, 0);
-          return (
-            <div
-              key={stage.key}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setOverStage(stage.key);
-              }}
-              onDragLeave={() => setOverStage(null)}
-              onDrop={(event) => drop(event, stage.key)}
-              className={`min-w-[285px] rounded-[18px] border p-3 transition ${
-                overStage === stage.key ? "border-[#81c2a9] bg-[#edf7f2]" : "border-[#e5e7e8] bg-[#f0f1f2]/70"
-              }`}
-            >
-              <div className="mb-3 flex items-center justify-between px-1 py-1">
-                <div className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${stage.dot}`} />
-                  <h2 className="text-xs font-bold text-[#454c51]">{stage.label}</h2>
-                  <span className="text-[10px] font-bold text-[#a0a5aa]">{stageDeals.length}</span>
+
+      {viewMode === "kanban" ? (
+        <div className="grid items-start gap-3 overflow-x-auto pb-4 xl:grid-cols-4">
+          {stageConfig.map((stage) => {
+            const stageDeals = deals.filter((deal) => deal.stage === stage.key);
+            const total = stageDeals.reduce((sum, deal) => sum + deal.value, 0);
+            return (
+              <div
+                key={stage.key}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setOverStage(stage.key);
+                }}
+                onDragLeave={() => setOverStage(null)}
+                onDrop={(event) => drop(event, stage.key)}
+                className={`min-w-[285px] rounded-[18px] border p-3 transition ${
+                  overStage === stage.key ? "border-[#81c2a9] bg-[#edf7f2]" : "border-[#e5e7e8] bg-[#f0f1f2]/70"
+                }`}
+              >
+                <div className="mb-3 flex items-center justify-between px-1 py-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full ${stage.dot}`} />
+                    <h2 className="text-xs font-bold text-[#454c51]">{stage.label}</h2>
+                    <span className="text-[10px] font-bold text-[#a0a5aa]">{stageDeals.length}</span>
+                  </div>
+                  <span className="text-[11px] font-bold text-[#70777d]">{money(total, true)}</span>
                 </div>
-                <span className="text-[11px] font-bold text-[#70777d]">{money(total, true)}</span>
+                <div className="space-y-2.5">
+                  {stageDeals.map((deal, index) => (
+                    <DealCard
+                      key={deal.id}
+                      deal={deal}
+                      colorIndex={index}
+                      dragging={draggedId === deal.id}
+                      onDragStart={() => setDraggedId(deal.id)}
+                      onDragEnd={() => {
+                        setDraggedId(null);
+                        setOverStage(null);
+                      }}
+                      onDelete={() => onDelete(deal.id)}
+                      onEdit={() => onEdit(deal)}
+                    />
+                  ))}
+                  <button
+                    onClick={() => onCreate(stage.key)}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#d3d7da] py-2.5 text-[11px] font-semibold text-[#8d9499] transition hover:border-[#91cbb5] hover:bg-white hover:text-[#167b5a]"
+                  >
+                    <Plus size={14} /> Add deal
+                  </button>
+                </div>
               </div>
-              <div className="space-y-2.5">
-                {stageDeals.map((deal, index) => (
-                  <DealCard
-                    key={deal.id}
-                    deal={deal}
-                    colorIndex={index}
-                    dragging={draggedId === deal.id}
-                    onDragStart={() => setDraggedId(deal.id)}
-                    onDragEnd={() => {
-                      setDraggedId(null);
-                      setOverStage(null);
-                    }}
-                    onDelete={() => onDelete(deal.id)}
-                  />
-                ))}
-                <button
-                  onClick={() => onCreate(stage.key)}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#d3d7da] py-2.5 text-[11px] font-semibold text-[#8d9499] transition hover:border-[#91cbb5] hover:bg-white hover:text-[#167b5a]"
-                >
-                  <Plus size={14} /> Add deal
-                </button>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+      ) : (
+        <DealsListView deals={sortedDeals} sortKey={sortKey} sortDesc={sortDesc} onSort={toggleSort} onEdit={onEdit} onDelete={onDelete} />
+      )}
+    </div>
+  );
+}
+
+function SortHeader({ label, active, desc, onClick }: { label: string; active: boolean; desc: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className={`flex items-center gap-1 font-bold ${active ? "text-[#17785a]" : "text-[#a0a5aa]"}`}>
+      {label}
+      {active && <ChevronDown size={12} className={`transition ${desc ? "" : "rotate-180"}`} />}
+    </button>
+  );
+}
+
+/** Bitrix-style flat deal list: every deal as one sortable row, with a
+ * colored stage tile instead of hunting through kanban columns. */
+function DealsListView({
+  deals,
+  sortKey,
+  sortDesc,
+  onSort,
+  onEdit,
+  onDelete,
+}: {
+  deals: DealView[];
+  sortKey: SortKey;
+  sortDesc: boolean;
+  onSort: (key: SortKey) => void;
+  onEdit: (deal: DealView) => void;
+  onDelete: (id: number) => void;
+}) {
+  return (
+    <div className="surface overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[900px] text-left">
+          <thead className="bg-[#fafafa] text-[10px] uppercase tracking-[0.1em] text-[#9ca1a6]">
+            <tr>
+              <th className="px-5 py-3">Opportunity</th>
+              <th className="px-5 py-3"><SortHeader label="Company" active={sortKey === "company"} desc={sortDesc} onClick={() => onSort("company")} /></th>
+              <th className="px-5 py-3">Stage</th>
+              <th className="px-5 py-3"><SortHeader label="Value" active={sortKey === "value"} desc={sortDesc} onClick={() => onSort("value")} /></th>
+              <th className="px-5 py-3"><SortHeader label="Probability" active={sortKey === "probability"} desc={sortDesc} onClick={() => onSort("probability")} /></th>
+              <th className="px-5 py-3"><SortHeader label="Last contact" active={sortKey === "lastContact"} desc={sortDesc} onClick={() => onSort("lastContact")} /></th>
+              <th className="px-5 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {deals.map((deal) => {
+              const stage = stageConfig.find((item) => item.key === deal.stage) ?? stageConfig[0];
+              return (
+                <tr key={deal.id} className="border-t border-[#eef0f1] transition hover:bg-[#fbfcfc]">
+                  <td className="px-5 py-4"><p className="text-xs font-bold text-[#343a3e]">{deal.title}</p><p className="mt-0.5 text-[10px] text-[#959ba0]">{deal.contactName}</p></td>
+                  <td className="px-5 py-4 text-xs font-semibold text-[#596168]">{deal.company}</td>
+                  <td className="px-5 py-4">
+                    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold text-white" style={{ backgroundColor: stage.color }}>
+                      {stage.label}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4 text-xs font-bold">{money(deal.value)}</td>
+                  <td className="px-5 py-4 text-xs font-semibold text-[#596168]">{deal.probability}%</td>
+                  <td className="px-5 py-4 text-[11px] text-[#7f868c]">{relativeLabel(deal.lastContactAt)}</td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button onClick={() => onEdit(deal)} className="text-[#a0a5a9] hover:text-[#177b5a]" aria-label={`Edit ${deal.title}`}><Pencil size={15} /></button>
+                      <button onClick={() => onDelete(deal.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`Delete ${deal.title}`}><Trash2 size={16} /></button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {deals.length === 0 && <p className="py-16 text-center text-sm text-[#8c9297]">No opportunities yet.</p>}
       </div>
     </div>
   );
@@ -1181,6 +1348,7 @@ function DealCard({
   onDragStart,
   onDragEnd,
   onDelete,
+  onEdit,
 }: {
   deal: DealView;
   colorIndex: number;
@@ -1188,6 +1356,7 @@ function DealCard({
   onDragStart: () => void;
   onDragEnd: () => void;
   onDelete: () => void;
+  onEdit: () => void;
 }) {
   return (
     <article
@@ -1200,13 +1369,14 @@ function DealCard({
         <span className={`rounded-md px-2 py-1 text-[9px] font-bold uppercase tracking-[0.1em] ${deal.temperature === "Hot" ? "bg-[#fde9e2] text-[#b65438]" : "bg-[#f7f0dc] text-[#947020]"}`}>
           {deal.temperature}
         </span>
-        <button
-          onClick={onDelete}
-          className="text-[#a1a6aa] opacity-0 transition hover:text-[#c04f3d] group-hover:opacity-100"
-          aria-label="Delete deal"
-        >
-          <Trash2 size={14} />
-        </button>
+        <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+          <button onClick={onEdit} className="text-[#a1a6aa] hover:text-[#177b5a]" aria-label="Edit deal">
+            <Pencil size={14} />
+          </button>
+          <button onClick={onDelete} className="text-[#a1a6aa] hover:text-[#c04f3d]" aria-label="Delete deal">
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
       <h3 className="mt-3 text-[13px] font-bold leading-5 text-[#30363a]">{deal.title}</h3>
       <p className="mt-1 text-[11px] text-[#8e9499]">{deal.company}</p>
@@ -1228,11 +1398,13 @@ function ContactsView({
   deals,
   onAdd,
   onDelete,
+  onEdit,
 }: {
   contacts: ContactView[];
   deals: DealView[];
   onAdd: () => void;
   onDelete: (id: number) => void;
+  onEdit: (contact: ContactView) => void;
 }) {
   const [filter, setFilter] = useState("");
   const visible = contacts.filter((contact) =>
@@ -1283,9 +1455,10 @@ function ContactsView({
                       </div>
                     </td>
                     <td className="px-5 py-4 text-right">
-                      <button onClick={() => onDelete(contact.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`Delete ${contact.name}`}>
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => onEdit(contact)} className="text-[#a0a5a9] hover:text-[#177b5a]" aria-label={`Edit ${contact.name}`}><Pencil size={15} /></button>
+                        <button onClick={() => onDelete(contact.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`Delete ${contact.name}`}><Trash2 size={16} /></button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1311,6 +1484,7 @@ function ActivitiesView({
   onDelete: (id: number) => void;
 }) {
   const completed = tasks.filter((task) => task.completed).length;
+  const now = new Date();
   return (
     <div className="mx-auto max-w-[1150px] animate-page-in">
       <PageHeading
@@ -1326,23 +1500,29 @@ function ActivitiesView({
             <span className="rounded-lg bg-[#eef6f2] px-2.5 py-1.5 text-[10px] font-bold text-[#21805f]">{Math.round((completed / Math.max(tasks.length, 1)) * 100)}% complete</span>
           </div>
           <div className="mt-2 divide-y divide-[#eef0f1]">
-            {tasks.map((task) => (
-              <div key={task.id} className={`group flex items-center gap-4 py-4 transition ${task.completed ? "opacity-55" : ""}`}>
-                <button
-                  onClick={() => onTaskToggle(task.id, !task.completed)}
-                  className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg border transition ${task.completed ? "border-[#1e9870] bg-[#1e9870] text-white" : "border-[#cfd3d6] text-transparent hover:border-[#1e9870] hover:text-[#1e9870]"}`}
-                  aria-label={task.completed ? `Reopen ${task.title}` : `Complete ${task.title}`}
-                ><Check size={14} strokeWidth={3} /></button>
-                <div className="min-w-0 flex-1">
-                  <p className={`text-sm font-semibold ${task.completed ? "line-through" : ""}`}>{task.title}</p>
-                  <p className="mt-1 text-[11px] text-[#91979c]">{task.company} · {task.dueLabel}</p>
+            {tasks.map((task) => {
+              const overdue = isOverdue(task, now);
+              return (
+                <div key={task.id} className={`group flex items-center gap-4 py-4 transition ${task.completed ? "opacity-55" : ""}`}>
+                  <button
+                    onClick={() => onTaskToggle(task.id, !task.completed)}
+                    className={`grid h-6 w-6 shrink-0 place-items-center rounded-lg border transition ${task.completed ? "border-[#1e9870] bg-[#1e9870] text-white" : "border-[#cfd3d6] text-transparent hover:border-[#1e9870] hover:text-[#1e9870]"}`}
+                    aria-label={task.completed ? `Reopen ${task.title}` : `Complete ${task.title}`}
+                  ><Check size={14} strokeWidth={3} /></button>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-sm font-semibold ${task.completed ? "line-through" : ""}`}>{task.title}</p>
+                    <p className="mt-1 text-[11px] text-[#91979c]">
+                      {task.company} · {task.dueLabel}
+                      {overdue && <span className="ml-1.5 font-bold text-[#c04f3d]">· Overdue</span>}
+                    </p>
+                  </div>
+                  <span className="hidden rounded-lg bg-[#f5f6f6] px-2.5 py-1.5 text-[10px] font-semibold text-[#687078] sm:flex sm:items-center sm:gap-1.5"><TaskIcon type={task.type} /> {task.type}</span>
+                  <button onClick={() => onDelete(task.id)} className="text-[#9ca2a6] opacity-0 transition hover:text-[#c04f3d] group-hover:opacity-100" aria-label={`Delete ${task.title}`}>
+                    <Trash2 size={16} />
+                  </button>
                 </div>
-                <span className="hidden rounded-lg bg-[#f5f6f6] px-2.5 py-1.5 text-[10px] font-semibold text-[#687078] sm:flex sm:items-center sm:gap-1.5"><TaskIcon type={task.type} /> {task.type}</span>
-                <button onClick={() => onDelete(task.id)} className="text-[#9ca2a6] opacity-0 transition hover:text-[#c04f3d] group-hover:opacity-100" aria-label={`Delete ${task.title}`}>
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            ))}
+              );
+            })}
             {tasks.length === 0 && <p className="py-10 text-center text-xs text-[#8c9297]">No activities yet.</p>}
           </div>
         </article>
@@ -1474,36 +1654,67 @@ function SearchResults({
   );
 }
 
-function Notifications({ onClose }: { onClose: () => void }) {
-  // NOTE: this remains sample content. A real activity feed would need its
-  // own events table (proposal opened, meeting reminder, mention, etc.) fed
-  // by real product events — that's a larger addition tracked separately
-  // from this pass and flagged to the team.
-  const items = [
-    { icon: TrendingUp, title: "Atlas Labs opened your proposal", time: "8 minutes ago", color: "bg-[#e3f2eb] text-[#1b805e]" },
-    { icon: CalendarDays, title: "Demo with Vertex starts in 45 min", time: "Today, 2:00 PM", color: "bg-[#eee9fa] text-[#6f52ae]" },
-    { icon: MessageSquareText, title: "Maya mentioned you in Nova Retail", time: "Yesterday", color: "bg-[#f9ecd9] text-[#986618]" },
-  ];
+const activityIcon: Record<string, LucideIcon> = {
+  deal: TrendingUp,
+  contact: UsersRound,
+  task: CheckCircle2,
+  system: Sparkles,
+};
+const activityColor: Record<string, string> = {
+  deal: "bg-[#e3f2eb] text-[#1b805e]",
+  contact: "bg-[#eee9fa] text-[#6f52ae]",
+  task: "bg-[#f9ecd9] text-[#986618]",
+  system: "bg-[#e6eef8] text-[#426a97]",
+};
+
+function Notifications({
+  activity,
+  overdueTasks,
+  onClose,
+}: {
+  activity: ActivityEntry[];
+  overdueTasks: TaskView[];
+  onClose: () => void;
+}) {
+  const empty = activity.length === 0 && overdueTasks.length === 0;
   return (
     <div className="absolute right-0 top-12 z-50 w-[320px] overflow-hidden rounded-2xl border border-[#e1e3e5] bg-white shadow-[0_18px_50px_rgba(30,36,40,0.14)] animate-pop-in sm:w-[355px]">
-      <div className="flex items-center justify-between border-b border-[#eceeef] px-4 py-3.5"><div><p className="text-sm font-bold">Notifications</p><p className="mt-0.5 text-[10px] text-[#92989c]">Sample data — not yet wired to real events</p></div><button onClick={onClose}><X size={15} className="text-[#959ba0]" /></button></div>
-      <div className="p-2">
-        {items.map(({ icon: Icon, title, time, color }) => (
-          <button key={title} className="flex w-full gap-3 rounded-xl p-2.5 text-left hover:bg-[#f7f8f8]">
-            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${color}`}><Icon size={15} /></span>
-            <span><span className="block text-xs font-semibold leading-5">{title}</span><span className="mt-0.5 block text-[10px] text-[#979da2]">{time}</span></span>
-          </button>
-        ))}
+      <div className="flex items-center justify-between border-b border-[#eceeef] px-4 py-3.5"><div><p className="text-sm font-bold">Notifications</p><p className="mt-0.5 text-[10px] text-[#92989c]">Recent activity in your workspace</p></div><button onClick={onClose}><X size={15} className="text-[#959ba0]" /></button></div>
+      <div className="max-h-[380px] overflow-y-auto p-2">
+        {empty && <p className="px-3 py-8 text-center text-xs text-[#8c9297]">Nothing yet — activity shows up here as you work.</p>}
+        {overdueTasks.length > 0 && (
+          <div className="mb-1">
+            <p className="px-2 py-2 text-[9px] font-bold uppercase tracking-[0.12em] text-[#c04f3d]">Overdue tasks</p>
+            {overdueTasks.map((task) => (
+              <div key={`due-${task.id}`} className="flex w-full gap-3 rounded-xl p-2.5 text-left">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#fdeeea] text-[#c04f3d]"><Clock3 size={15} /></span>
+                <span><span className="block text-xs font-semibold leading-5">{task.title}</span><span className="mt-0.5 block text-[10px] text-[#979da2]">{task.company} · overdue</span></span>
+              </div>
+            ))}
+          </div>
+        )}
+        {activity.map((entry) => {
+          const Icon = activityIcon[entry.kind] ?? Sparkles;
+          const color = activityColor[entry.kind] ?? activityColor.system;
+          return (
+            <div key={entry.id} className="flex w-full gap-3 rounded-xl p-2.5 text-left">
+              <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${color}`}><Icon size={15} /></span>
+              <span><span className="block text-xs font-semibold leading-5">{entry.message}</span><span className="mt-0.5 block text-[10px] text-[#979da2]">{relativeLabel(entry.createdAt)}</span></span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function ProfileMenu() {
+function ProfileMenu({ onOpenSettings }: { onOpenSettings: () => void }) {
   return (
     <div className="absolute right-0 top-12 z-50 w-52 rounded-2xl border border-[#e1e3e5] bg-white p-2 shadow-[0_18px_50px_rgba(30,36,40,0.14)] animate-pop-in">
       <div className="border-b border-[#eceeef] px-2 py-2.5"><p className="text-xs font-bold">Alex Morgan</p><p className="mt-0.5 text-[10px] text-[#92989d]">alex@northstar.co</p></div>
-      {[{ icon: UsersRound, label: "Team workspace" }, { icon: Settings2, label: "Account settings" }].map(({ icon: Icon, label }) => <button key={label} className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs font-semibold text-[#626a70] hover:bg-[#f5f6f7]"><Icon size={15} />{label}</button>)}
+      <button onClick={onOpenSettings} className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs font-semibold text-[#626a70] hover:bg-[#f5f6f7]">
+        <Settings2 size={15} /> Account settings
+      </button>
       <form action={logout}>
         <button type="submit" className="mt-1 w-full border-t border-[#eceeef] px-2 pt-3 pb-1 text-left text-xs font-semibold text-[#b24d41]">Sign out</button>
       </form>
@@ -1575,58 +1786,75 @@ function SettingsPanel({
 
 function CreateDealModal({
   defaultStage,
+  editingDeal,
   onClose,
   onSuccess,
 }: {
   defaultStage: string;
+  editingDeal?: DealView | null;
   onClose: () => void;
   onSuccess: (message: string) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isEditing = Boolean(editingDeal);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
     const data = new FormData(event.currentTarget);
-    const result = await createDeal({
+    const payload = {
       title: String(data.get("title") ?? ""),
       company: String(data.get("company") ?? ""),
       contactName: String(data.get("contactName") ?? ""),
       email: String(data.get("email") ?? ""),
       value: Number(data.get("value") ?? 0),
       stage: String(data.get("stage") ?? "new"),
-    });
+      notes: String(data.get("notes") ?? ""),
+    };
+    const result = editingDeal ? await updateDeal(editingDeal.id, payload) : await createDeal(payload);
     setSubmitting(false);
     if (!result.ok) {
-      setError(result.message ?? "Could not create this opportunity.");
+      setError(result.message ?? "Could not save this opportunity.");
       return;
     }
-    onSuccess(result.message ?? "Opportunity created.");
+    onSuccess(result.message ?? "Opportunity saved.");
   }
 
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-[#15191d]/40 p-4 backdrop-blur-[3px] animate-fade-in" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
-      <div className="w-full max-w-[560px] overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_rgba(20,25,28,0.22)] animate-modal-in">
+      <div className="w-full max-w-[560px] overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_rgba(20,25,28,0.22)] animate-modal-in max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between border-b border-[#eceeef] px-5 py-5 sm:px-6">
-          <div><p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]"><Sparkles size={13} /> New opportunity</p><h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">Add a deal to your pipeline</h2></div>
+          <div>
+            <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]">
+              {isEditing ? <Pencil size={13} /> : <Sparkles size={13} />} {isEditing ? "Edit opportunity" : "New opportunity"}
+            </p>
+            <h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">{isEditing ? "Update this deal" : "Add a deal to your pipeline"}</h2>
+          </div>
           <button onClick={onClose} className="icon-button" aria-label="Close modal"><X size={18} /></button>
         </div>
         <form onSubmit={submit} className="p-5 sm:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="field sm:col-span-2"><span>Opportunity name</span><input name="title" required autoFocus placeholder="e.g. Enterprise rollout" /></label>
-            <label className="field"><span>Company</span><input name="company" required placeholder="Acme, Inc." /></label>
-            <label className="field"><span>Deal value</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#8d9398]">$</span><input name="value" type="number" min="1" required placeholder="25,000" className="pl-7!" /></div></label>
-            <label className="field"><span>Contact name</span><input name="contactName" required placeholder="Jordan Lee" /></label>
-            <label className="field"><span>Email</span><input name="email" type="email" required placeholder="jordan@company.com" /></label>
-            <label className="field sm:col-span-2"><span>Pipeline stage</span><select name="stage" defaultValue={defaultStage}>{stageConfig.map((stage) => <option key={stage.key} value={stage.key}>{stage.label}</option>)}</select></label>
+            <label className="field sm:col-span-2"><span>Opportunity name</span><input name="title" required autoFocus defaultValue={editingDeal?.title} placeholder="e.g. Enterprise rollout" /></label>
+            <label className="field"><span>Company</span><input name="company" required defaultValue={editingDeal?.company} placeholder="Acme, Inc." /></label>
+            <label className="field"><span>Deal value</span><input name="value" type="number" min="1" required defaultValue={editingDeal?.value} placeholder="25 000" /></label>
+            <label className="field"><span>Contact name</span><input name="contactName" required defaultValue={editingDeal?.contactName} placeholder="Jordan Lee" /></label>
+            <label className="field"><span>Email</span><input name="email" type="email" required defaultValue={editingDeal?.email} placeholder="jordan@company.com" /></label>
+            <label className="field sm:col-span-2"><span>Pipeline stage</span><select name="stage" defaultValue={editingDeal?.stage ?? defaultStage}>{stageConfig.map((stage) => <option key={stage.key} value={stage.key}>{stage.label}</option>)}</select></label>
+            <label className="field sm:col-span-2"><span>Notes</span><textarea name="notes" rows={3} defaultValue={editingDeal?.notes ?? ""} placeholder="Any context worth remembering about this deal..." /></label>
           </div>
           {error && <p className="mt-4 rounded-xl bg-[#fff0ec] px-3 py-2.5 text-xs font-semibold text-[#aa4c3c]">{error}</p>}
           <div className="mt-6 flex items-center justify-end gap-2 border-t border-[#eef0f1] pt-5">
             <button type="button" onClick={onClose} className="secondary-button">Cancel</button>
             <button type="submit" disabled={submitting} className="primary-button min-w-[140px] justify-center disabled:opacity-60">
-              {submitting ? <><LoaderCircle size={16} className="animate-spin" /> Creating...</> : <><Plus size={16} /> Create deal</>}
+              {submitting ? (
+                <><LoaderCircle size={16} className="animate-spin" /> {isEditing ? "Saving..." : "Creating..."}</>
+              ) : isEditing ? (
+                <><Pencil size={16} /> Save changes</>
+              ) : (
+                <><Plus size={16} /> Create deal</>
+              )}
             </button>
           </div>
         </form>
@@ -1636,55 +1864,70 @@ function CreateDealModal({
 }
 
 function CreateContactModal({
+  editingContact,
   onClose,
   onSuccess,
 }: {
+  editingContact?: ContactView | null;
   onClose: () => void;
   onSuccess: (message: string) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isEditing = Boolean(editingContact);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
     const data = new FormData(event.currentTarget);
-    const result = await createContact({
+    const payload = {
       name: String(data.get("name") ?? ""),
       company: String(data.get("company") ?? ""),
       role: String(data.get("role") ?? ""),
       email: String(data.get("email") ?? ""),
       phone: String(data.get("phone") ?? ""),
-    });
+    };
+    const result = editingContact ? await updateContact(editingContact.id, payload) : await createContact(payload);
     setSubmitting(false);
     if (!result.ok) {
-      setError(result.message ?? "Could not create this contact.");
+      setError(result.message ?? "Could not save this contact.");
       return;
     }
-    onSuccess(result.message ?? "Contact created.");
+    onSuccess(result.message ?? "Contact saved.");
   }
 
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-[#15191d]/40 p-4 backdrop-blur-[3px] animate-fade-in" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
       <div className="w-full max-w-[560px] overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_rgba(20,25,28,0.22)] animate-modal-in">
         <div className="flex items-start justify-between border-b border-[#eceeef] px-5 py-5 sm:px-6">
-          <div><p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]"><UsersRound size={13} /> New contact</p><h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">Add a person to your workspace</h2></div>
+          <div>
+            <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]">
+              {isEditing ? <Pencil size={13} /> : <UsersRound size={13} />} {isEditing ? "Edit contact" : "New contact"}
+            </p>
+            <h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">{isEditing ? "Update this contact" : "Add a person to your workspace"}</h2>
+          </div>
           <button onClick={onClose} className="icon-button" aria-label="Close modal"><X size={18} /></button>
         </div>
         <form onSubmit={submit} className="p-5 sm:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="field sm:col-span-2"><span>Full name</span><input name="name" required autoFocus placeholder="Jordan Lee" /></label>
-            <label className="field"><span>Company</span><input name="company" required placeholder="Acme, Inc." /></label>
-            <label className="field"><span>Role</span><input name="role" required placeholder="VP of Sales" /></label>
-            <label className="field"><span>Email</span><input name="email" type="email" required placeholder="jordan@company.com" /></label>
-            <label className="field"><span>Phone (optional)</span><input name="phone" type="tel" placeholder="+1 555 000 0000" /></label>
+            <label className="field sm:col-span-2"><span>Full name</span><input name="name" required autoFocus defaultValue={editingContact?.name} placeholder="Jordan Lee" /></label>
+            <label className="field"><span>Company</span><input name="company" required defaultValue={editingContact?.company} placeholder="Acme, Inc." /></label>
+            <label className="field"><span>Role</span><input name="role" required defaultValue={editingContact?.role} placeholder="VP of Sales" /></label>
+            <label className="field"><span>Email</span><input name="email" type="email" required defaultValue={editingContact?.email} placeholder="jordan@company.com" /></label>
+            <label className="field"><span>Phone (optional)</span><input name="phone" type="tel" defaultValue={editingContact?.phone ?? ""} placeholder="+48 500 000 000" /></label>
           </div>
           {error && <p className="mt-4 rounded-xl bg-[#fff0ec] px-3 py-2.5 text-xs font-semibold text-[#aa4c3c]">{error}</p>}
           <div className="mt-6 flex items-center justify-end gap-2 border-t border-[#eef0f1] pt-5">
             <button type="button" onClick={onClose} className="secondary-button">Cancel</button>
             <button type="submit" disabled={submitting} className="primary-button min-w-[140px] justify-center disabled:opacity-60">
-              {submitting ? <><LoaderCircle size={16} className="animate-spin" /> Creating...</> : <><Plus size={16} /> Add contact</>}
+              {submitting ? (
+                <><LoaderCircle size={16} className="animate-spin" /> {isEditing ? "Saving..." : "Creating..."}</>
+              ) : isEditing ? (
+                <><Pencil size={16} /> Save changes</>
+              ) : (
+                <><Plus size={16} /> Add contact</>
+              )}
             </button>
           </div>
         </form>
@@ -1713,6 +1956,7 @@ function CreateTaskModal({
       company: String(data.get("company") ?? ""),
       type: String(data.get("type") ?? "Call"),
       dueLabel: String(data.get("dueLabel") ?? ""),
+      dueAt: String(data.get("dueAt") ?? ""),
     });
     setSubmitting(false);
     if (!result.ok) {
@@ -1734,7 +1978,8 @@ function CreateTaskModal({
             <label className="field sm:col-span-2"><span>Title</span><input name="title" required autoFocus placeholder="e.g. Discovery call" /></label>
             <label className="field"><span>Company</span><input name="company" required placeholder="Acme, Inc." /></label>
             <label className="field"><span>Type</span><select name="type" defaultValue="Call"><option>Call</option><option>Email</option><option>Meeting</option><option>Message</option></select></label>
-            <label className="field sm:col-span-2"><span>Due</span><input name="dueLabel" required placeholder="e.g. Tomorrow, 2:00 PM" /></label>
+            <label className="field"><span>Due (display text)</span><input name="dueLabel" required placeholder="e.g. Tomorrow, 2:00 PM" /></label>
+            <label className="field sm:col-span-2"><span>Exact due date (optional, powers automatic reminders)</span><input name="dueAt" type="datetime-local" /></label>
           </div>
           {error && <p className="mt-4 rounded-xl bg-[#fff0ec] px-3 py-2.5 text-xs font-semibold text-[#aa4c3c]">{error}</p>}
           <div className="mt-6 flex items-center justify-end gap-2 border-t border-[#eef0f1] pt-5">

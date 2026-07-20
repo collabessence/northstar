@@ -48,12 +48,12 @@ export async function seedSampleData(): Promise<{ inserted: boolean }> {
     ]);
 
     await db.insert(tasks).values([
-      { title: "Send revised commercial proposal", company: "Atlas Labs", type: "Email", dueLabel: "Due 10:30 AM", completed: false },
-      { title: "Discovery call with buying team", company: "North & Finch", type: "Call", dueLabel: "11:00 AM", completed: false },
-      { title: "Product walkthrough and Q&A", company: "Vertex AI", type: "Meeting", dueLabel: "2:00 PM", completed: false },
-      { title: "Confirm security review owners", company: "Nova Retail", type: "Email", dueLabel: "Due today", completed: false },
-      { title: "Share migration timeline", company: "Sundial Energy", type: "Message", dueLabel: "Tomorrow", completed: false },
-      { title: "Update opportunity notes", company: "Meridian Health", type: "Message", dueLabel: "Completed", completed: true },
+      { title: "Send revised commercial proposal", company: "Atlas Labs", type: "Email", dueLabel: "Due 10:30 AM", dueAt: ago(-2 * HOUR), completed: false },
+      { title: "Discovery call with buying team", company: "North & Finch", type: "Call", dueLabel: "11:00 AM", dueAt: ago(-1 * HOUR), completed: false },
+      { title: "Product walkthrough and Q&A", company: "Vertex AI", type: "Meeting", dueLabel: "2:00 PM", dueAt: ago(-6 * HOUR), completed: false },
+      { title: "Confirm security review owners", company: "Nova Retail", type: "Email", dueLabel: "Due today", dueAt: ago(-3 * HOUR), completed: false },
+      { title: "Share migration timeline", company: "Sundial Energy", type: "Message", dueLabel: "Tomorrow", dueAt: ago(-1 * DAY), completed: false },
+      { title: "Update opportunity notes", company: "Meridian Health", type: "Message", dueLabel: "Completed", dueAt: ago(1 * DAY), completed: true },
     ]);
 
     return { inserted: true };
