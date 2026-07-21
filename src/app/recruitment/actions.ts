@@ -37,6 +37,25 @@ export async function createClient(input: {
   return { ok: true, message: "Client added." };
 }
 
+export async function updateClient(
+  clientId: number,
+  input: { name: string; industry: string; contactName: string; contactEmail: string; contactPhone?: string },
+) {
+  const name = input.name.trim();
+  const industry = input.industry.trim();
+  const contactName = input.contactName.trim();
+  const contactEmail = input.contactEmail.trim();
+  if (!Number.isInteger(clientId) || !name || !industry || !contactName || !contactEmail) {
+    return { ok: false, message: "Please complete all required fields." };
+  }
+  await db
+    .update(recruitmentClients)
+    .set({ name, industry, contactName, contactEmail, contactPhone: input.contactPhone?.trim() || null })
+    .where(eq(recruitmentClients.id, clientId));
+  revalidatePath("/recruitment");
+  return { ok: true, message: "Client updated." };
+}
+
 export async function deleteClient(clientId: number) {
   if (!Number.isInteger(clientId)) return { ok: false };
   await db.delete(recruitmentClients).where(eq(recruitmentClients.id, clientId));
@@ -101,6 +120,66 @@ export async function deleteCandidate(candidateId: number) {
   return { ok: true };
 }
 
+export async function updateCandidate(
+  candidateId: number,
+  input: {
+    name: string;
+    email: string;
+    phone?: string;
+    currentTitle: string;
+    currentCompany?: string;
+    location: string;
+    skills: string;
+    yearsExperience: number;
+    desiredSalary: number;
+    availability: string;
+    source: string;
+  },
+) {
+  const name = input.name.trim();
+  const email = input.email.trim();
+  const currentTitle = input.currentTitle.trim();
+  const location = input.location.trim();
+  const skills = input.skills
+    .split(",")
+    .map((skill) => skill.trim())
+    .filter(Boolean);
+  const desiredSalary = Math.round(Number(input.desiredSalary));
+  const yearsExperience = Math.round(Number(input.yearsExperience));
+
+  if (
+    !Number.isInteger(candidateId) ||
+    !name ||
+    !email ||
+    !currentTitle ||
+    !location ||
+    !Number.isFinite(desiredSalary) ||
+    desiredSalary <= 0
+  ) {
+    return { ok: false, message: "Please complete all required fields with a valid salary." };
+  }
+
+  await db
+    .update(candidates)
+    .set({
+      name,
+      email,
+      phone: input.phone?.trim() || null,
+      currentTitle,
+      currentCompany: input.currentCompany?.trim() || null,
+      location,
+      skills,
+      yearsExperience: Number.isFinite(yearsExperience) ? yearsExperience : 0,
+      desiredSalary,
+      availability: input.availability.trim() || "2 weeks notice",
+      source: input.source.trim() || "Sourced",
+    })
+    .where(eq(candidates.id, candidateId));
+
+  revalidatePath("/recruitment");
+  return { ok: true, message: "Candidate updated." };
+}
+
 export async function touchCandidate(candidateId: number) {
   if (!Number.isInteger(candidateId)) return { ok: false };
   await db.update(candidates).set({ lastContactAt: new Date() }).where(eq(candidates.id, candidateId));
@@ -154,6 +233,58 @@ export async function updateJobOrderStatus(jobOrderId: number, status: string) {
   await db.update(jobOrders).set({ status }).where(eq(jobOrders.id, jobOrderId));
   revalidatePath("/recruitment");
   return { ok: true };
+}
+
+export async function updateJobOrder(
+  jobOrderId: number,
+  input: {
+    title: string;
+    clientId: number;
+    seniority: string;
+    employmentType: string;
+    salaryMin: number;
+    salaryMax: number;
+    feePercentage: number;
+    openings: number;
+    priority: string;
+  },
+) {
+  const title = input.title.trim();
+  const clientId = Math.round(Number(input.clientId));
+  const salaryMin = Math.round(Number(input.salaryMin));
+  const salaryMax = Math.round(Number(input.salaryMax));
+  const feePercentage = Number(input.feePercentage);
+  const openings = Math.max(1, Math.round(Number(input.openings)) || 1);
+
+  if (
+    !Number.isInteger(jobOrderId) ||
+    !title ||
+    !Number.isInteger(clientId) ||
+    !Number.isFinite(salaryMin) ||
+    !Number.isFinite(salaryMax) ||
+    salaryMin <= 0 ||
+    salaryMax < salaryMin
+  ) {
+    return { ok: false, message: "Please complete all required fields with a valid salary range." };
+  }
+
+  await db
+    .update(jobOrders)
+    .set({
+      title,
+      clientId,
+      seniority: input.seniority || "Mid",
+      employmentType: input.employmentType || "Permanent",
+      salaryMin,
+      salaryMax,
+      feePercentage: Number.isFinite(feePercentage) && feePercentage > 0 ? feePercentage : 20,
+      openings,
+      priority: input.priority || "Medium",
+    })
+    .where(eq(jobOrders.id, jobOrderId));
+
+  revalidatePath("/recruitment");
+  return { ok: true, message: "Job order updated." };
 }
 
 export async function deleteJobOrder(jobOrderId: number) {

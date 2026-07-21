@@ -21,6 +21,7 @@ import {
   MessageSquareText,
   MoreHorizontal,
   PanelLeftClose,
+  Pencil,
   Phone,
   Plus,
   Search,
@@ -53,6 +54,9 @@ import {
   movePlacement,
   resetRecruitmentWorkspace,
   setRecruitmentTaskCompleted,
+  updateCandidate,
+  updateClient,
+  updateJobOrder,
   updateJobOrderStatus,
 } from "./actions";
 import {
@@ -157,6 +161,9 @@ export default function RecruitmentDashboard({
   const [jobOrderModalOpen, setJobOrderModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editingCandidate, setEditingCandidate] = useState<CandidateView | null>(null);
+  const [editingClient, setEditingClient] = useState<ClientView | null>(null);
+  const [editingJobOrder, setEditingJobOrder] = useState<JobOrderView | null>(null);
   const [addToPipelineFor, setAddToPipelineFor] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [localPlacements, setLocalPlacements] = useState(placements);
@@ -471,6 +478,7 @@ export default function RecruitmentDashboard({
               placements={localPlacements}
               jobOrderMap={jobOrderMap}
               onAdd={() => setCandidateModalOpen(true)}
+              onEdit={setEditingCandidate}
               onDelete={(id) => {
                 if (!window.confirm("Delete this candidate?")) return;
                 startTransition(async () => {
@@ -488,6 +496,8 @@ export default function RecruitmentDashboard({
               jobOrders={jobOrders}
               onAddClient={() => setClientModalOpen(true)}
               onAddJobOrder={() => setJobOrderModalOpen(true)}
+              onEditClient={setEditingClient}
+              onEditJobOrder={setEditingJobOrder}
               onDeleteClient={(id) => {
                 if (!window.confirm("Delete this client and its job orders?")) return;
                 startTransition(async () => {
@@ -519,14 +529,27 @@ export default function RecruitmentDashboard({
         </main>
       </div>
 
-      {candidateModalOpen && (
-        <CreateCandidateModal onClose={() => setCandidateModalOpen(false)} onSuccess={(m) => { setCandidateModalOpen(false); setToast(m); router.refresh(); }} />
+      {(candidateModalOpen || editingCandidate) && (
+        <CreateCandidateModal
+          editingCandidate={editingCandidate}
+          onClose={() => { setCandidateModalOpen(false); setEditingCandidate(null); }}
+          onSuccess={(m) => { setCandidateModalOpen(false); setEditingCandidate(null); setToast(m); router.refresh(); }}
+        />
       )}
-      {clientModalOpen && (
-        <CreateClientModal onClose={() => setClientModalOpen(false)} onSuccess={(m) => { setClientModalOpen(false); setToast(m); router.refresh(); }} />
+      {(clientModalOpen || editingClient) && (
+        <CreateClientModal
+          editingClient={editingClient}
+          onClose={() => { setClientModalOpen(false); setEditingClient(null); }}
+          onSuccess={(m) => { setClientModalOpen(false); setEditingClient(null); setToast(m); router.refresh(); }}
+        />
       )}
-      {jobOrderModalOpen && (
-        <CreateJobOrderModal clients={clients} onClose={() => setJobOrderModalOpen(false)} onSuccess={(m) => { setJobOrderModalOpen(false); setToast(m); router.refresh(); }} />
+      {(jobOrderModalOpen || editingJobOrder) && (
+        <CreateJobOrderModal
+          clients={clients}
+          editingJobOrder={editingJobOrder}
+          onClose={() => { setJobOrderModalOpen(false); setEditingJobOrder(null); }}
+          onSuccess={(m) => { setJobOrderModalOpen(false); setEditingJobOrder(null); setToast(m); router.refresh(); }}
+        />
       )}
       {taskModalOpen && (
         <CreateTaskModal onClose={() => setTaskModalOpen(false)} onSuccess={(m) => { setTaskModalOpen(false); setToast(m); router.refresh(); }} />
@@ -1025,6 +1048,7 @@ function CandidatesView({
   placements,
   jobOrderMap,
   onAdd,
+  onEdit,
   onDelete,
   onAddToPipeline,
 }: {
@@ -1032,6 +1056,7 @@ function CandidatesView({
   placements: PlacementView[];
   jobOrderMap: Map<number, JobOrderView>;
   onAdd: () => void;
+  onEdit: (candidate: CandidateView) => void;
   onDelete: (id: number) => void;
   onAddToPipeline: (candidateId: number) => void;
 }) {
@@ -1081,6 +1106,7 @@ function CandidatesView({
                             Add to pipeline
                           </button>
                         )}
+                        <button onClick={() => onEdit(candidate)} className="text-[#a0a5a9] hover:text-[#177b5a]" aria-label={`Edit ${candidate.name}`}><Pencil size={15} /></button>
                         <button onClick={() => onDelete(candidate.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`Delete ${candidate.name}`}><Trash2 size={16} /></button>
                       </div>
                     </td>
@@ -1101,6 +1127,8 @@ function ClientsView({
   jobOrders,
   onAddClient,
   onAddJobOrder,
+  onEditClient,
+  onEditJobOrder,
   onDeleteClient,
   onDeleteJobOrder,
   onStatusChange,
@@ -1109,6 +1137,8 @@ function ClientsView({
   jobOrders: JobOrderView[];
   onAddClient: () => void;
   onAddJobOrder: () => void;
+  onEditClient: (client: ClientView) => void;
+  onEditJobOrder: (jobOrder: JobOrderView) => void;
   onDeleteClient: (id: number) => void;
   onDeleteJobOrder: (id: number) => void;
   onStatusChange: (id: number, status: string) => void;
@@ -1138,7 +1168,10 @@ function ClientsView({
                   <h3 className="text-sm font-bold">{client.name}</h3>
                   <p className="mt-0.5 text-[11px] text-[#8e9499]">{client.industry}</p>
                 </div>
-                <button onClick={() => onDeleteClient(client.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`Delete ${client.name}`}><Trash2 size={15} /></button>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => onEditClient(client)} className="text-[#a0a5a9] hover:text-[#177b5a]" aria-label={`Edit ${client.name}`}><Pencil size={14} /></button>
+                  <button onClick={() => onDeleteClient(client.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`Delete ${client.name}`}><Trash2 size={15} /></button>
+                </div>
               </div>
               <div className="mt-3 flex items-center gap-1.5 text-[11px] font-semibold text-[#596168]">
                 <span className={`h-1.5 w-1.5 rounded-full ${client.status === "Active" ? "bg-[#46b98e]" : "bg-[#e0b355]"}`} /> {client.status}
@@ -1175,7 +1208,12 @@ function ClientsView({
                       <option value="Open">Open</option><option value="OnHold">On hold</option><option value="Filled">Filled</option><option value="Cancelled">Cancelled</option>
                     </select>
                   </td>
-                  <td className="px-5 py-4 text-right"><button onClick={() => onDeleteJobOrder(jo.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`Delete ${jo.title}`}><Trash2 size={16} /></button></td>
+                  <td className="px-5 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button onClick={() => onEditJobOrder(jo)} className="text-[#a0a5a9] hover:text-[#177b5a]" aria-label={`Edit ${jo.title}`}><Pencil size={15} /></button>
+                      <button onClick={() => onDeleteJobOrder(jo.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`Delete ${jo.title}`}><Trash2 size={16} /></button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1410,16 +1448,25 @@ function RecruitmentSettingsPanel({
   );
 }
 
-function CreateCandidateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (message: string) => void }) {
+function CreateCandidateModal({
+  editingCandidate,
+  onClose,
+  onSuccess,
+}: {
+  editingCandidate?: CandidateView | null;
+  onClose: () => void;
+  onSuccess: (message: string) => void;
+}) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isEditing = Boolean(editingCandidate);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
     const data = new FormData(event.currentTarget);
-    const result = await createCandidate({
+    const payload = {
       name: String(data.get("name") ?? ""),
       email: String(data.get("email") ?? ""),
       phone: String(data.get("phone") ?? ""),
@@ -1431,38 +1478,50 @@ function CreateCandidateModal({ onClose, onSuccess }: { onClose: () => void; onS
       desiredSalary: Number(data.get("desiredSalary") ?? 0),
       availability: String(data.get("availability") ?? ""),
       source: String(data.get("source") ?? "Sourced"),
-    });
+    };
+    const result = editingCandidate ? await updateCandidate(editingCandidate.id, payload) : await createCandidate(payload);
     setSubmitting(false);
-    if (!result.ok) { setError(result.message ?? "Could not add this candidate."); return; }
-    onSuccess(result.message ?? "Candidate added.");
+    if (!result.ok) { setError(result.message ?? "Could not save this candidate."); return; }
+    onSuccess(result.message ?? "Candidate saved.");
   }
 
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-[#15191d]/40 p-4 backdrop-blur-[3px] animate-fade-in" onMouseDown={(e) => { if (e.currentTarget === e.target) onClose(); }}>
       <div className="w-full max-w-[620px] overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_rgba(20,25,28,0.22)] animate-modal-in max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between border-b border-[#eceeef] px-5 py-5 sm:px-6">
-          <div><p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]"><Users size={13} /> New candidate</p><h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">Add to your talent pool</h2></div>
+          <div>
+            <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]">
+              {isEditing ? <Pencil size={13} /> : <Users size={13} />} {isEditing ? "Edit candidate" : "New candidate"}
+            </p>
+            <h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">{isEditing ? "Update this candidate" : "Add to your talent pool"}</h2>
+          </div>
           <button onClick={onClose} className="icon-button" aria-label="Close modal"><X size={18} /></button>
         </div>
         <form onSubmit={submit} className="p-5 sm:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="field sm:col-span-2"><span>Full name</span><input name="name" required autoFocus placeholder="Jordan Reyes" /></label>
-            <label className="field"><span>Current title</span><input name="currentTitle" required placeholder="Senior Backend Engineer" /></label>
-            <label className="field"><span>Current company</span><input name="currentCompany" placeholder="Optional" /></label>
-            <label className="field"><span>Email</span><input name="email" type="email" required placeholder="jordan@mail.com" /></label>
-            <label className="field"><span>Phone (optional)</span><input name="phone" type="tel" placeholder="+1 555 000 0000" /></label>
-            <label className="field"><span>Location</span><input name="location" required placeholder="Austin, TX" /></label>
-            <label className="field"><span>Years of experience</span><input name="yearsExperience" type="number" min="0" defaultValue={3} /></label>
-            <label className="field"><span>Desired salary</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#8d9398]">$</span><input name="desiredSalary" type="number" min="1" required placeholder="150,000" className="pl-7!" /></div></label>
-            <label className="field"><span>Availability</span><select name="availability" defaultValue="2 weeks notice"><option>Immediate</option><option>2 weeks notice</option><option>1 month notice</option></select></label>
-            <label className="field"><span>Source</span><select name="source" defaultValue="Sourced"><option>Referral</option><option>Sourced</option><option>Applied</option><option>Network</option></select></label>
-            <label className="field sm:col-span-2"><span>Skills (comma separated)</span><input name="skills" placeholder="Go, PostgreSQL, Kubernetes" /></label>
+            <label className="field sm:col-span-2"><span>Full name</span><input name="name" required autoFocus defaultValue={editingCandidate?.name} placeholder="Jordan Reyes" /></label>
+            <label className="field"><span>Current title</span><input name="currentTitle" required defaultValue={editingCandidate?.currentTitle} placeholder="Senior Backend Engineer" /></label>
+            <label className="field"><span>Current company</span><input name="currentCompany" defaultValue={editingCandidate?.currentCompany ?? ""} placeholder="Optional" /></label>
+            <label className="field"><span>Email</span><input name="email" type="email" required defaultValue={editingCandidate?.email} placeholder="jordan@mail.com" /></label>
+            <label className="field"><span>Phone (optional)</span><input name="phone" type="tel" defaultValue={editingCandidate?.phone ?? ""} placeholder="+48 500 000 000" /></label>
+            <label className="field"><span>Location</span><input name="location" required defaultValue={editingCandidate?.location} placeholder="Austin, TX" /></label>
+            <label className="field"><span>Years of experience</span><input name="yearsExperience" type="number" min="0" defaultValue={editingCandidate?.yearsExperience ?? 3} /></label>
+            <label className="field"><span>Desired salary</span><input name="desiredSalary" type="number" min="1" required defaultValue={editingCandidate?.desiredSalary} placeholder="150 000" /></label>
+            <label className="field"><span>Availability</span><select name="availability" defaultValue={editingCandidate?.availability ?? "2 weeks notice"}><option>Immediate</option><option>2 weeks notice</option><option>1 month notice</option></select></label>
+            <label className="field"><span>Source</span><select name="source" defaultValue={editingCandidate?.source ?? "Sourced"}><option>Referral</option><option>Sourced</option><option>Applied</option><option>Network</option></select></label>
+            <label className="field sm:col-span-2"><span>Skills (comma separated)</span><input name="skills" defaultValue={editingCandidate?.skills.join(", ")} placeholder="Go, PostgreSQL, Kubernetes" /></label>
           </div>
           {error && <p className="mt-4 rounded-xl bg-[#fff0ec] px-3 py-2.5 text-xs font-semibold text-[#aa4c3c]">{error}</p>}
           <div className="mt-6 flex items-center justify-end gap-2 border-t border-[#eef0f1] pt-5">
             <button type="button" onClick={onClose} className="secondary-button">Cancel</button>
             <button type="submit" disabled={submitting} className="primary-button min-w-[140px] justify-center disabled:opacity-60">
-              {submitting ? <><LoaderCircle size={16} className="animate-spin" /> Adding...</> : <><Plus size={16} /> Add candidate</>}
+              {submitting ? (
+                <><LoaderCircle size={16} className="animate-spin" /> {isEditing ? "Saving..." : "Adding..."}</>
+              ) : isEditing ? (
+                <><Pencil size={16} /> Save changes</>
+              ) : (
+                <><Plus size={16} /> Add candidate</>
+              )}
             </button>
           </div>
         </form>
@@ -1471,47 +1530,68 @@ function CreateCandidateModal({ onClose, onSuccess }: { onClose: () => void; onS
   );
 }
 
-function CreateClientModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (message: string) => void }) {
+function CreateClientModal({
+  editingClient,
+  onClose,
+  onSuccess,
+}: {
+  editingClient?: ClientView | null;
+  onClose: () => void;
+  onSuccess: (message: string) => void;
+}) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isEditing = Boolean(editingClient);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
     const data = new FormData(event.currentTarget);
-    const result = await createClient({
+    const payload = {
       name: String(data.get("name") ?? ""),
       industry: String(data.get("industry") ?? ""),
       contactName: String(data.get("contactName") ?? ""),
       contactEmail: String(data.get("contactEmail") ?? ""),
       contactPhone: String(data.get("contactPhone") ?? ""),
-    });
+    };
+    const result = editingClient ? await updateClient(editingClient.id, payload) : await createClient(payload);
     setSubmitting(false);
-    if (!result.ok) { setError(result.message ?? "Could not add this client."); return; }
-    onSuccess(result.message ?? "Client added.");
+    if (!result.ok) { setError(result.message ?? "Could not save this client."); return; }
+    onSuccess(result.message ?? "Client saved.");
   }
 
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-[#15191d]/40 p-4 backdrop-blur-[3px] animate-fade-in" onMouseDown={(e) => { if (e.currentTarget === e.target) onClose(); }}>
       <div className="w-full max-w-[560px] overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_rgba(20,25,28,0.22)] animate-modal-in">
         <div className="flex items-start justify-between border-b border-[#eceeef] px-5 py-5 sm:px-6">
-          <div><p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]"><Briefcase size={13} /> New client</p><h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">Add a hiring client</h2></div>
+          <div>
+            <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]">
+              {isEditing ? <Pencil size={13} /> : <Briefcase size={13} />} {isEditing ? "Edit client" : "New client"}
+            </p>
+            <h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">{isEditing ? "Update this client" : "Add a hiring client"}</h2>
+          </div>
           <button onClick={onClose} className="icon-button" aria-label="Close modal"><X size={18} /></button>
         </div>
         <form onSubmit={submit} className="p-5 sm:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="field sm:col-span-2"><span>Company name</span><input name="name" required autoFocus placeholder="Atlas Labs" /></label>
-            <label className="field"><span>Industry</span><input name="industry" required placeholder="B2B SaaS" /></label>
-            <label className="field"><span>Contact name</span><input name="contactName" required placeholder="Priya Shah" /></label>
-            <label className="field"><span>Contact email</span><input name="contactEmail" type="email" required placeholder="priya@company.com" /></label>
-            <label className="field"><span>Contact phone (optional)</span><input name="contactPhone" type="tel" placeholder="+1 555 000 0000" /></label>
+            <label className="field sm:col-span-2"><span>Company name</span><input name="name" required autoFocus defaultValue={editingClient?.name} placeholder="Atlas Labs" /></label>
+            <label className="field"><span>Industry</span><input name="industry" required defaultValue={editingClient?.industry} placeholder="B2B SaaS" /></label>
+            <label className="field"><span>Contact name</span><input name="contactName" required defaultValue={editingClient?.contactName} placeholder="Priya Shah" /></label>
+            <label className="field"><span>Contact email</span><input name="contactEmail" type="email" required defaultValue={editingClient?.contactEmail} placeholder="priya@company.com" /></label>
+            <label className="field"><span>Contact phone (optional)</span><input name="contactPhone" type="tel" defaultValue={editingClient?.contactPhone ?? ""} placeholder="+48 500 000 000" /></label>
           </div>
           {error && <p className="mt-4 rounded-xl bg-[#fff0ec] px-3 py-2.5 text-xs font-semibold text-[#aa4c3c]">{error}</p>}
           <div className="mt-6 flex items-center justify-end gap-2 border-t border-[#eef0f1] pt-5">
             <button type="button" onClick={onClose} className="secondary-button">Cancel</button>
             <button type="submit" disabled={submitting} className="primary-button min-w-[140px] justify-center disabled:opacity-60">
-              {submitting ? <><LoaderCircle size={16} className="animate-spin" /> Adding...</> : <><Plus size={16} /> Add client</>}
+              {submitting ? (
+                <><LoaderCircle size={16} className="animate-spin" /> {isEditing ? "Saving..." : "Adding..."}</>
+              ) : isEditing ? (
+                <><Pencil size={16} /> Save changes</>
+              ) : (
+                <><Plus size={16} /> Add client</>
+              )}
             </button>
           </div>
         </form>
