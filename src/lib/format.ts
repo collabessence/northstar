@@ -6,6 +6,7 @@ export function money(value: number, compact = false) {
   return new Intl.NumberFormat("pl-PL", {
     style: "currency",
     currency: "PLN",
+    currencyDisplay: "code",
     maximumFractionDigits: compact ? 0 : 0,
     notation: compact ? "compact" : "standard",
   }).format(value);

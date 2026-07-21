@@ -124,6 +124,7 @@ function money(value: number, compact = false) {
   return new Intl.NumberFormat("pl-PL", {
     style: "currency",
     currency: "PLN",
+    currencyDisplay: "code",
     maximumFractionDigits: 0,
     notation: compact ? "compact" : "standard",
   }).format(value);
@@ -427,6 +428,9 @@ export default function RecruitmentDashboard({
                     <p className="text-xs font-bold">Alex Morgan</p>
                     <p className="mt-0.5 text-[10px] text-[#92989d]">alex@northstar.co</p>
                   </div>
+                  <button onClick={() => { setProfileOpen(false); setSettingsOpen(true); }} className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-xs font-semibold text-[#626a70] hover:bg-[#f5f6f7]">
+                    <Settings2 size={15} /> Account settings
+                  </button>
                   <form action={logout}>
                     <button type="submit" className="mt-1 w-full border-t border-[#eceeef] px-2 pt-3 pb-1 text-left text-xs font-semibold text-[#b24d41]">Sign out</button>
                   </form>
@@ -1373,7 +1377,7 @@ function SalaryPromptModal({ jobOrder, onClose, onConfirm }: { jobOrder: JobOrde
         </div>
         <div className="p-5">
           <label className="field"><span>Agreed annual salary</span>
-            <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#8d9398]">$</span><input type="number" min="1" value={salary} onChange={(e) => setSalary(Number(e.target.value))} className="pl-7!" /></div>
+            <input type="number" min="1" value={salary} onChange={(e) => setSalary(Number(e.target.value))} />
           </label>
           {jobOrder && <p className="mt-3 rounded-xl bg-[#f7f7f4] px-3 py-2.5 text-xs font-semibold text-[#596168]">Fee at {jobOrder.feePercentage}%: <span className="text-[#17805e]">{money(fee)}</span></p>}
           <div className="mt-6 flex items-center justify-end gap-2 border-t border-[#eef0f1] pt-5">
@@ -1660,8 +1664,8 @@ function CreateJobOrderModal({
               <label className="field sm:col-span-2"><span>Client</span><select name="clientId" required defaultValue={editingJobOrder?.clientId ?? clients[0]?.id}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
               <label className="field"><span>Seniority</span><select name="seniority" defaultValue={editingJobOrder?.seniority ?? "Mid"}><option>Junior</option><option>Mid</option><option>Senior</option><option>Lead</option><option>Executive</option></select></label>
               <label className="field"><span>Employment type</span><select name="employmentType" defaultValue={editingJobOrder?.employmentType ?? "Permanent"}><option>Permanent</option><option>Contract</option><option>Temp</option></select></label>
-              <label className="field"><span>Salary min</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#8d9398]">$</span><input name="salaryMin" type="number" min="1" required defaultValue={editingJobOrder?.salaryMin} placeholder="130,000" className="pl-7!" /></div></label>
-              <label className="field"><span>Salary max</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#8d9398]">$</span><input name="salaryMax" type="number" min="1" required defaultValue={editingJobOrder?.salaryMax} placeholder="160,000" className="pl-7!" /></div></label>
+              <label className="field"><span>Salary min</span><input name="salaryMin" type="number" min="1" required defaultValue={editingJobOrder?.salaryMin} placeholder="130 000" /></label>
+              <label className="field"><span>Salary max</span><input name="salaryMax" type="number" min="1" required defaultValue={editingJobOrder?.salaryMax} placeholder="160 000" /></label>
               <label className="field"><span>Fee %</span><input name="feePercentage" type="number" min="1" max="100" step="0.5" defaultValue={editingJobOrder?.feePercentage ?? 20} /></label>
               <label className="field"><span>Openings</span><input name="openings" type="number" min="1" defaultValue={editingJobOrder?.openings ?? 1} /></label>
               <label className="field sm:col-span-2"><span>Priority</span><select name="priority" defaultValue={editingJobOrder?.priority ?? "Medium"}><option>Low</option><option>Medium</option><option>High</option></select></label>
