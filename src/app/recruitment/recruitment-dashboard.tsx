@@ -1600,16 +1600,27 @@ function CreateClientModal({
   );
 }
 
-function CreateJobOrderModal({ clients, onClose, onSuccess }: { clients: ClientView[]; onClose: () => void; onSuccess: (message: string) => void }) {
+function CreateJobOrderModal({
+  clients,
+  editingJobOrder,
+  onClose,
+  onSuccess,
+}: {
+  clients: ClientView[];
+  editingJobOrder?: JobOrderView | null;
+  onClose: () => void;
+  onSuccess: (message: string) => void;
+}) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isEditing = Boolean(editingJobOrder);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
     const data = new FormData(event.currentTarget);
-    const result = await createJobOrder({
+    const payload = {
       title: String(data.get("title") ?? ""),
       clientId: Number(data.get("clientId") ?? 0),
       seniority: String(data.get("seniority") ?? "Mid"),
@@ -1619,17 +1630,25 @@ function CreateJobOrderModal({ clients, onClose, onSuccess }: { clients: ClientV
       feePercentage: Number(data.get("feePercentage") ?? 20),
       openings: Number(data.get("openings") ?? 1),
       priority: String(data.get("priority") ?? "Medium"),
-    });
+    };
+    const result = editingJobOrder
+      ? await updateJobOrder(editingJobOrder.id, payload)
+      : await createJobOrder(payload);
     setSubmitting(false);
-    if (!result.ok) { setError(result.message ?? "Could not open this job order."); return; }
-    onSuccess(result.message ?? "Job order opened.");
+    if (!result.ok) { setError(result.message ?? "Could not save this job order."); return; }
+    onSuccess(result.message ?? "Job order saved.");
   }
 
   return (
     <div className="fixed inset-0 z-[70] grid place-items-center bg-[#15191d]/40 p-4 backdrop-blur-[3px] animate-fade-in" onMouseDown={(e) => { if (e.currentTarget === e.target) onClose(); }}>
       <div className="w-full max-w-[620px] overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_rgba(20,25,28,0.22)] animate-modal-in max-h-[90vh] overflow-y-auto">
         <div className="flex items-start justify-between border-b border-[#eceeef] px-5 py-5 sm:px-6">
-          <div><p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]"><Briefcase size={13} /> New job order</p><h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">Open a role for a client</h2></div>
+          <div>
+            <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]">
+              {isEditing ? <Pencil size={13} /> : <Briefcase size={13} />} {isEditing ? "Edit job order" : "New job order"}
+            </p>
+            <h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">{isEditing ? "Update this role" : "Open a role for a client"}</h2>
+          </div>
           <button onClick={onClose} className="icon-button" aria-label="Close modal"><X size={18} /></button>
         </div>
         <form onSubmit={submit} className="p-5 sm:p-6">
@@ -1637,22 +1656,28 @@ function CreateJobOrderModal({ clients, onClose, onSuccess }: { clients: ClientV
             <p className="rounded-xl bg-[#fff7e8] px-3 py-2.5 text-xs font-semibold text-[#8a6416]">Add a client first before opening a job order.</p>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="field sm:col-span-2"><span>Role title</span><input name="title" required autoFocus placeholder="Senior Backend Engineer" /></label>
-              <label className="field sm:col-span-2"><span>Client</span><select name="clientId" required defaultValue={clients[0]?.id}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-              <label className="field"><span>Seniority</span><select name="seniority" defaultValue="Mid"><option>Junior</option><option>Mid</option><option>Senior</option><option>Lead</option><option>Executive</option></select></label>
-              <label className="field"><span>Employment type</span><select name="employmentType" defaultValue="Permanent"><option>Permanent</option><option>Contract</option><option>Temp</option></select></label>
-              <label className="field"><span>Salary min</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#8d9398]">$</span><input name="salaryMin" type="number" min="1" required placeholder="130,000" className="pl-7!" /></div></label>
-              <label className="field"><span>Salary max</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#8d9398]">$</span><input name="salaryMax" type="number" min="1" required placeholder="160,000" className="pl-7!" /></div></label>
-              <label className="field"><span>Fee %</span><input name="feePercentage" type="number" min="1" max="100" step="0.5" defaultValue={20} /></label>
-              <label className="field"><span>Openings</span><input name="openings" type="number" min="1" defaultValue={1} /></label>
-              <label className="field sm:col-span-2"><span>Priority</span><select name="priority" defaultValue="Medium"><option>Low</option><option>Medium</option><option>High</option></select></label>
+              <label className="field sm:col-span-2"><span>Role title</span><input name="title" required autoFocus defaultValue={editingJobOrder?.title} placeholder="Senior Backend Engineer" /></label>
+              <label className="field sm:col-span-2"><span>Client</span><select name="clientId" required defaultValue={editingJobOrder?.clientId ?? clients[0]?.id}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+              <label className="field"><span>Seniority</span><select name="seniority" defaultValue={editingJobOrder?.seniority ?? "Mid"}><option>Junior</option><option>Mid</option><option>Senior</option><option>Lead</option><option>Executive</option></select></label>
+              <label className="field"><span>Employment type</span><select name="employmentType" defaultValue={editingJobOrder?.employmentType ?? "Permanent"}><option>Permanent</option><option>Contract</option><option>Temp</option></select></label>
+              <label className="field"><span>Salary min</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#8d9398]">$</span><input name="salaryMin" type="number" min="1" required defaultValue={editingJobOrder?.salaryMin} placeholder="130,000" className="pl-7!" /></div></label>
+              <label className="field"><span>Salary max</span><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[#8d9398]">$</span><input name="salaryMax" type="number" min="1" required defaultValue={editingJobOrder?.salaryMax} placeholder="160,000" className="pl-7!" /></div></label>
+              <label className="field"><span>Fee %</span><input name="feePercentage" type="number" min="1" max="100" step="0.5" defaultValue={editingJobOrder?.feePercentage ?? 20} /></label>
+              <label className="field"><span>Openings</span><input name="openings" type="number" min="1" defaultValue={editingJobOrder?.openings ?? 1} /></label>
+              <label className="field sm:col-span-2"><span>Priority</span><select name="priority" defaultValue={editingJobOrder?.priority ?? "Medium"}><option>Low</option><option>Medium</option><option>High</option></select></label>
             </div>
           )}
           {error && <p className="mt-4 rounded-xl bg-[#fff0ec] px-3 py-2.5 text-xs font-semibold text-[#aa4c3c]">{error}</p>}
           <div className="mt-6 flex items-center justify-end gap-2 border-t border-[#eef0f1] pt-5">
             <button type="button" onClick={onClose} className="secondary-button">Cancel</button>
             <button type="submit" disabled={submitting || clients.length === 0} className="primary-button min-w-[140px] justify-center disabled:opacity-60">
-              {submitting ? <><LoaderCircle size={16} className="animate-spin" /> Opening...</> : <><Plus size={16} /> Open role</>}
+              {submitting ? (
+                <><LoaderCircle size={16} className="animate-spin" /> {isEditing ? "Saving..." : "Opening..."}</>
+              ) : isEditing ? (
+                <><Pencil size={16} /> Save changes</>
+              ) : (
+                <><Plus size={16} /> Open role</>
+              )}
             </button>
           </div>
         </form>
