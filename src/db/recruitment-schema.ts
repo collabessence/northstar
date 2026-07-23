@@ -25,6 +25,11 @@ export const candidates = pgTable("candidates", {
   name: text("name").notNull(),
   email: text("email").notNull(),
   phone: text("phone"),
+  // Stored as plain ISO text (YYYY-MM-DD) rather than a date column — CV
+  // dates come from unreliable free-text parsing, so this stays easy to
+  // leave blank or correct by hand without date-type validation getting
+  // in the way.
+  birthDate: text("birth_date"),
   currentTitle: text("current_title").notNull(),
   currentCompany: text("current_company"),
   location: text("location").notNull(),

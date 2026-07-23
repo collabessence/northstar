@@ -69,6 +69,7 @@ export async function createCandidate(input: {
   name: string;
   email: string;
   phone?: string;
+  birthDate?: string;
   currentTitle: string;
   currentCompany?: string;
   location: string;
@@ -97,6 +98,7 @@ export async function createCandidate(input: {
     name,
     email,
     phone: input.phone?.trim() || null,
+    birthDate: input.birthDate?.trim() || null,
     currentTitle,
     currentCompany: input.currentCompany?.trim() || null,
     location,
@@ -126,6 +128,7 @@ export async function updateCandidate(
     name: string;
     email: string;
     phone?: string;
+    birthDate?: string;
     currentTitle: string;
     currentCompany?: string;
     location: string;
@@ -165,6 +168,7 @@ export async function updateCandidate(
       name,
       email,
       phone: input.phone?.trim() || null,
+      birthDate: input.birthDate?.trim() || null,
       currentTitle,
       currentCompany: input.currentCompany?.trim() || null,
       location,

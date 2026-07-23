@@ -18,6 +18,7 @@ export type CandidateView = {
   name: string;
   email: string;
   phone: string | null;
+  birthDate: string | null;
   currentTitle: string;
   currentCompany: string | null;
   location: string;

@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Clock3,
   Columns3,
+  FileUp,
   GripVertical,
   LayoutDashboard,
   LoaderCircle,
@@ -59,6 +60,8 @@ import {
   updateJobOrder,
   updateJobOrderStatus,
 } from "./actions";
+import { parseCvFile } from "./cv-actions";
+import type { ParsedCvFields } from "@/lib/cv-parser";
 import {
   type CandidateView,
   type ClientView,
@@ -163,6 +166,8 @@ export default function RecruitmentDashboard({
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editingCandidate, setEditingCandidate] = useState<CandidateView | null>(null);
+  const [candidateDraft, setCandidateDraft] = useState<Partial<CandidateView> | null>(null);
+  const [importCvOpen, setImportCvOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientView | null>(null);
   const [editingJobOrder, setEditingJobOrder] = useState<JobOrderView | null>(null);
   const [addToPipelineFor, setAddToPipelineFor] = useState<number | null>(null);
@@ -413,6 +418,10 @@ export default function RecruitmentDashboard({
           </div>
 
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+            <button onClick={() => setImportCvOpen(true)} className="flex h-10 items-center gap-2 rounded-xl border border-[#dfe2e4] bg-white px-3.5 text-sm font-bold text-[#454c51] transition hover:border-[#8fc7ae] hover:text-[#17805e]">
+              <FileUp size={16} />
+              <span className="hidden sm:inline">Import CV</span>
+            </button>
             <button onClick={() => setCandidateModalOpen(true)} className="flex h-10 items-center gap-2 rounded-xl bg-[#1c8e68] px-3.5 text-sm font-bold text-white shadow-[0_6px_18px_rgba(28,142,104,0.18)] transition hover:-translate-y-0.5 hover:bg-[#177b5a] sm:px-4">
               <Plus size={17} strokeWidth={2.5} />
               <span className="hidden sm:inline">Add candidate</span>
@@ -533,11 +542,21 @@ export default function RecruitmentDashboard({
         </main>
       </div>
 
-      {(candidateModalOpen || editingCandidate) && (
+      {(candidateModalOpen || editingCandidate || candidateDraft) && (
         <CreateCandidateModal
           editingCandidate={editingCandidate}
-          onClose={() => { setCandidateModalOpen(false); setEditingCandidate(null); }}
-          onSuccess={(m) => { setCandidateModalOpen(false); setEditingCandidate(null); setToast(m); router.refresh(); }}
+          prefill={candidateDraft}
+          onClose={() => { setCandidateModalOpen(false); setEditingCandidate(null); setCandidateDraft(null); }}
+          onSuccess={(m) => { setCandidateModalOpen(false); setEditingCandidate(null); setCandidateDraft(null); setToast(m); router.refresh(); }}
+        />
+      )}
+      {importCvOpen && (
+        <ImportCvModal
+          onClose={() => setImportCvOpen(false)}
+          onParsed={(fields) => {
+            setImportCvOpen(false);
+            setCandidateDraft(fields);
+          }}
         />
       )}
       {(clientModalOpen || editingClient) && (
@@ -1454,16 +1473,19 @@ function RecruitmentSettingsPanel({
 
 function CreateCandidateModal({
   editingCandidate,
+  prefill,
   onClose,
   onSuccess,
 }: {
   editingCandidate?: CandidateView | null;
+  prefill?: Partial<CandidateView> | null;
   onClose: () => void;
   onSuccess: (message: string) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isEditing = Boolean(editingCandidate);
+  const draft = editingCandidate ?? prefill ?? null;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1474,6 +1496,7 @@ function CreateCandidateModal({
       name: String(data.get("name") ?? ""),
       email: String(data.get("email") ?? ""),
       phone: String(data.get("phone") ?? ""),
+      birthDate: String(data.get("birthDate") ?? ""),
       currentTitle: String(data.get("currentTitle") ?? ""),
       currentCompany: String(data.get("currentCompany") ?? ""),
       location: String(data.get("location") ?? ""),
@@ -1495,25 +1518,29 @@ function CreateCandidateModal({
         <div className="flex items-start justify-between border-b border-[#eceeef] px-5 py-5 sm:px-6">
           <div>
             <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]">
-              {isEditing ? <Pencil size={13} /> : <Users size={13} />} {isEditing ? "Edit candidate" : "New candidate"}
+              {isEditing ? <Pencil size={13} /> : <Users size={13} />} {isEditing ? "Edit candidate" : prefill ? "Imported from CV" : "New candidate"}
             </p>
             <h2 className="mt-1.5 text-xl font-bold tracking-[-0.03em]">{isEditing ? "Update this candidate" : "Add to your talent pool"}</h2>
+            {prefill && !isEditing && (
+              <p className="mt-1.5 text-xs text-[#8a9095]">Fields were filled in automatically from the uploaded file — check them over before saving.</p>
+            )}
           </div>
           <button onClick={onClose} className="icon-button" aria-label="Close modal"><X size={18} /></button>
         </div>
         <form onSubmit={submit} className="p-5 sm:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="field sm:col-span-2"><span>Full name</span><input name="name" required autoFocus defaultValue={editingCandidate?.name} placeholder="Jordan Reyes" /></label>
-            <label className="field"><span>Current title</span><input name="currentTitle" required defaultValue={editingCandidate?.currentTitle} placeholder="Senior Backend Engineer" /></label>
-            <label className="field"><span>Current company</span><input name="currentCompany" defaultValue={editingCandidate?.currentCompany ?? ""} placeholder="Optional" /></label>
-            <label className="field"><span>Email</span><input name="email" type="email" required defaultValue={editingCandidate?.email} placeholder="jordan@mail.com" /></label>
-            <label className="field"><span>Phone (optional)</span><input name="phone" type="tel" defaultValue={editingCandidate?.phone ?? ""} placeholder="+48 500 000 000" /></label>
-            <label className="field"><span>Location</span><input name="location" required defaultValue={editingCandidate?.location} placeholder="Austin, TX" /></label>
-            <label className="field"><span>Years of experience</span><input name="yearsExperience" type="number" min="0" defaultValue={editingCandidate?.yearsExperience ?? 3} /></label>
-            <label className="field"><span>Desired salary</span><input name="desiredSalary" type="number" min="1" required defaultValue={editingCandidate?.desiredSalary} placeholder="150 000" /></label>
-            <label className="field"><span>Availability</span><select name="availability" defaultValue={editingCandidate?.availability ?? "2 weeks notice"}><option>Immediate</option><option>2 weeks notice</option><option>1 month notice</option></select></label>
-            <label className="field"><span>Source</span><select name="source" defaultValue={editingCandidate?.source ?? "Sourced"}><option>Referral</option><option>Sourced</option><option>Applied</option><option>Network</option></select></label>
-            <label className="field sm:col-span-2"><span>Skills (comma separated)</span><input name="skills" defaultValue={editingCandidate?.skills.join(", ")} placeholder="Go, PostgreSQL, Kubernetes" /></label>
+            <label className="field sm:col-span-2"><span>Full name</span><input name="name" required autoFocus defaultValue={draft?.name} placeholder="Jordan Reyes" /></label>
+            <label className="field"><span>Current title</span><input name="currentTitle" required defaultValue={draft?.currentTitle} placeholder="Senior Backend Engineer" /></label>
+            <label className="field"><span>Current company</span><input name="currentCompany" defaultValue={draft?.currentCompany ?? ""} placeholder="Optional" /></label>
+            <label className="field"><span>Email</span><input name="email" type="email" required defaultValue={draft?.email} placeholder="jordan@mail.com" /></label>
+            <label className="field"><span>Phone (optional)</span><input name="phone" type="tel" defaultValue={draft?.phone ?? ""} placeholder="+48 500 000 000" /></label>
+            <label className="field"><span>Date of birth (optional)</span><input name="birthDate" type="date" defaultValue={draft?.birthDate ?? ""} /></label>
+            <label className="field"><span>Location</span><input name="location" required defaultValue={draft?.location} placeholder="Austin, TX" /></label>
+            <label className="field"><span>Years of experience</span><input name="yearsExperience" type="number" min="0" defaultValue={draft?.yearsExperience ?? 3} /></label>
+            <label className="field"><span>Desired salary</span><input name="desiredSalary" type="number" min="1" required defaultValue={draft?.desiredSalary} placeholder="150 000" /></label>
+            <label className="field"><span>Availability</span><select name="availability" defaultValue={draft?.availability ?? "2 weeks notice"}><option>Immediate</option><option>2 weeks notice</option><option>1 month notice</option></select></label>
+            <label className="field"><span>Source</span><select name="source" defaultValue={isEditing ? draft?.source : prefill ? "Applied" : "Sourced"}><option>Referral</option><option>Sourced</option><option>Applied</option><option>Network</option></select></label>
+            <label className="field sm:col-span-2"><span>Skills (comma separated)</span><input name="skills" defaultValue={draft?.skills?.join(", ") ?? ""} placeholder="Go, PostgreSQL, Kubernetes" /></label>
           </div>
           {error && <p className="mt-4 rounded-xl bg-[#fff0ec] px-3 py-2.5 text-xs font-semibold text-[#aa4c3c]">{error}</p>}
           <div className="mt-6 flex items-center justify-end gap-2 border-t border-[#eef0f1] pt-5">
@@ -1529,6 +1556,81 @@ function CreateCandidateModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function ImportCvModal({
+  onClose,
+  onParsed,
+}: {
+  onClose: () => void;
+  onParsed: (fields: Partial<CandidateView>) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+
+  async function handleFile(file: File) {
+    setFileName(file.name);
+    setUploading(true);
+    setError(null);
+    const formData = new FormData();
+    formData.append("file", file);
+    const result = await parseCvFile(formData);
+    setUploading(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    const fields: ParsedCvFields = result.fields;
+    const draft: Partial<CandidateView> = {
+      name: fields.fullName ?? undefined,
+      email: fields.email ?? undefined,
+      phone: fields.phone ?? undefined,
+      birthDate: fields.birthDate ?? undefined,
+      location: fields.city ?? undefined,
+    };
+    onParsed(draft);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center bg-[#15191d]/40 p-4 backdrop-blur-[3px] animate-fade-in" onMouseDown={(e) => { if (e.currentTarget === e.target) onClose(); }}>
+      <div className="w-full max-w-[480px] overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_rgba(20,25,28,0.22)] animate-modal-in">
+        <div className="flex items-start justify-between border-b border-[#eceeef] px-5 py-5">
+          <div>
+            <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#18805e]"><FileUp size={13} /> Import CV</p>
+            <h2 className="mt-1.5 text-lg font-bold tracking-[-0.03em]">Create a candidate from a file</h2>
+          </div>
+          <button onClick={onClose} className="icon-button" aria-label="Close"><X size={18} /></button>
+        </div>
+        <div className="p-5">
+          <p className="mb-3 text-xs leading-5 text-[#7d848a]">
+            Upload a .pdf or .docx CV. Name, email, phone, date of birth, and city are pulled out automatically — you&apos;ll get a chance to check and correct everything before it&apos;s saved.
+          </p>
+          <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#d3d7da] bg-[#fafafa] px-4 py-8 text-center transition hover:border-[#8fc7ae] hover:bg-[#f4faf7]">
+            <input
+              type="file"
+              accept=".pdf,.docx"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleFile(file);
+              }}
+            />
+            {uploading ? (
+              <><LoaderCircle size={22} className="animate-spin text-[#17805e]" /><span className="text-xs font-semibold text-[#596168]">Reading {fileName}...</span></>
+            ) : (
+              <>
+                <FileUp size={22} className="text-[#8d9398]" />
+                <span className="text-xs font-semibold text-[#596168]">Click to choose a file</span>
+                <span className="text-[10px] text-[#a0a5aa]">PDF or DOCX</span>
+              </>
+            )}
+          </label>
+          {error && <p className="mt-4 rounded-xl bg-[#fff0ec] px-3 py-2.5 text-xs font-semibold text-[#aa4c3c]">{error}</p>}
+        </div>
       </div>
     </div>
   );
