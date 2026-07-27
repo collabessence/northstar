@@ -1,5 +1,3 @@
-import type { Deal } from "@/db/schema";
-
 export type DealView = {
   id: number;
   title: string;

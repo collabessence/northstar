@@ -46,11 +46,11 @@ import {
   createJobOrder,
   createPlacement,
   createRecruitmentTask,
-  deleteCandidate,
   deleteClient,
   deleteJobOrder,
   deletePlacement,
   deleteRecruitmentTask,
+  eraseCandidateData,
   loadRecruitmentSampleData,
   movePlacement,
   resetRecruitmentWorkspace,
@@ -85,6 +85,7 @@ type TaskView = {
   relatedLabel: string;
   type: string;
   dueLabel: string;
+  candidateId: number | null;
   completed: boolean;
 };
 
@@ -170,6 +171,7 @@ export default function RecruitmentDashboard({
   const [importCvOpen, setImportCvOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientView | null>(null);
   const [editingJobOrder, setEditingJobOrder] = useState<JobOrderView | null>(null);
+  const [erasingCandidate, setErasingCandidate] = useState<CandidateView | null>(null);
   const [addToPipelineFor, setAddToPipelineFor] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [localPlacements, setLocalPlacements] = useState(placements);
@@ -493,12 +495,8 @@ export default function RecruitmentDashboard({
               onAdd={() => setCandidateModalOpen(true)}
               onEdit={setEditingCandidate}
               onDelete={(id) => {
-                if (!window.confirm("Delete this candidate?")) return;
-                startTransition(async () => {
-                  const result = await deleteCandidate(id);
-                  setToast(result.ok ? "Candidate deleted." : "Could not delete candidate.");
-                  router.refresh();
-                });
+                const candidate = candidates.find((c) => c.id === id);
+                if (candidate) setErasingCandidate(candidate);
               }}
               onAddToPipeline={(candidateId) => setAddToPipelineFor(candidateId)}
             />
@@ -550,6 +548,21 @@ export default function RecruitmentDashboard({
           onSuccess={(m) => { setCandidateModalOpen(false); setEditingCandidate(null); setCandidateDraft(null); setToast(m); router.refresh(); }}
         />
       )}
+      {erasingCandidate && (
+        <EraseCandidateModal
+          candidate={erasingCandidate}
+          onClose={() => setErasingCandidate(null)}
+          onConfirm={() => {
+            const id = erasingCandidate.id;
+            startTransition(async () => {
+              const result = await eraseCandidateData(id);
+              setErasingCandidate(null);
+              setToast(result.message ?? "Done.");
+              router.refresh();
+            });
+          }}
+        />
+      )}
       {importCvOpen && (
         <ImportCvModal
           onClose={() => setImportCvOpen(false)}
@@ -575,7 +588,7 @@ export default function RecruitmentDashboard({
         />
       )}
       {taskModalOpen && (
-        <CreateTaskModal onClose={() => setTaskModalOpen(false)} onSuccess={(m) => { setTaskModalOpen(false); setToast(m); router.refresh(); }} />
+        <CreateTaskModal candidates={candidates} onClose={() => setTaskModalOpen(false)} onSuccess={(m) => { setTaskModalOpen(false); setToast(m); router.refresh(); }} />
       )}
       {addToPipelineFor !== null && (
         <AddToPipelineModal
@@ -1130,7 +1143,7 @@ function CandidatesView({
                           </button>
                         )}
                         <button onClick={() => onEdit(candidate)} className="text-[#a0a5a9] hover:text-[#177b5a]" aria-label={`Edit ${candidate.name}`}><Pencil size={15} /></button>
-                        <button onClick={() => onDelete(candidate.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`Delete ${candidate.name}`}><Trash2 size={16} /></button>
+                        <button onClick={() => onDelete(candidate.id)} className="text-[#a0a5a9] hover:text-[#c04f3d]" aria-label={`End process and erase all data for ${candidate.name}`} title="End process & erase candidate data"><Trash2 size={16} /></button>
                       </div>
                     </td>
                   </tr>
@@ -1636,6 +1649,56 @@ function ImportCvModal({
   );
 }
 
+function EraseCandidateModal({
+  candidate,
+  onClose,
+  onConfirm,
+}: {
+  candidate: CandidateView;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const [confirmed, setConfirmed] = useState(false);
+
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center bg-[#15191d]/40 p-4 backdrop-blur-[3px] animate-fade-in" onMouseDown={(e) => { if (e.currentTarget === e.target) onClose(); }}>
+      <div className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_rgba(20,25,28,0.22)] animate-modal-in">
+        <div className="flex items-start justify-between border-b border-[#eceeef] px-5 py-5">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#9a3f2f]">End process &amp; erase data</p>
+            <h2 className="mt-1.5 text-lg font-bold tracking-[-0.03em]">{candidate.name}</h2>
+          </div>
+          <button onClick={onClose} className="icon-button" aria-label="Close"><X size={18} /></button>
+        </div>
+        <div className="p-5">
+          <div className="rounded-2xl border border-[#f3d9d2] bg-[#fff8f6] p-4">
+            <p className="text-xs font-bold text-[#9a3f2f]">This permanently deletes, with nothing kept:</p>
+            <ul className="mt-2 space-y-1 text-xs leading-5 text-[#a8574a]">
+              <li>• Their profile — name, email, phone, date of birth, location</li>
+              <li>• CV/resume notes and skills</li>
+              <li>• Every pipeline entry they were part of</li>
+              <li>• Every task linked to them</li>
+            </ul>
+            <p className="mt-3 text-xs leading-5 text-[#a8574a]">
+              Nothing is archived or soft-deleted — this is irreversible. A generic log entry (no personal data) records only that an erasure happened.
+            </p>
+          </div>
+          <label className="mt-4 flex items-start gap-2.5 text-xs text-[#596168]">
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5" />
+            I confirm this candidate&apos;s recruitment process has ended and their data should be permanently erased.
+          </label>
+          <div className="mt-6 flex items-center justify-end gap-2 border-t border-[#eef0f1] pt-5">
+            <button onClick={onClose} className="secondary-button">Cancel</button>
+            <button onClick={onConfirm} disabled={!confirmed} className="rounded-xl bg-[#c04f3d] px-3.5 py-2 text-xs font-bold text-white transition hover:bg-[#a8402f] disabled:cursor-not-allowed disabled:opacity-40">
+              Erase permanently
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CreateClientModal({
   editingClient,
   onClose,
@@ -1792,7 +1855,7 @@ function CreateJobOrderModal({
   );
 }
 
-function CreateTaskModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (message: string) => void }) {
+function CreateTaskModal({ candidates, onClose, onSuccess }: { candidates: CandidateView[]; onClose: () => void; onSuccess: (message: string) => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1801,11 +1864,13 @@ function CreateTaskModal({ onClose, onSuccess }: { onClose: () => void; onSucces
     setSubmitting(true);
     setError(null);
     const data = new FormData(event.currentTarget);
+    const candidateIdRaw = String(data.get("candidateId") ?? "");
     const result = await createRecruitmentTask({
       title: String(data.get("title") ?? ""),
       relatedLabel: String(data.get("relatedLabel") ?? ""),
       type: String(data.get("type") ?? "Call"),
       dueLabel: String(data.get("dueLabel") ?? ""),
+      candidateId: candidateIdRaw ? Number(candidateIdRaw) : undefined,
     });
     setSubmitting(false);
     if (!result.ok) { setError(result.message ?? "Could not schedule this activity."); return; }
@@ -1822,7 +1887,14 @@ function CreateTaskModal({ onClose, onSuccess }: { onClose: () => void; onSucces
         <form onSubmit={submit} className="p-5 sm:p-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="field sm:col-span-2"><span>Title</span><input name="title" required autoFocus placeholder="e.g. Reference check" /></label>
-            <label className="field sm:col-span-2"><span>Related to</span><input name="relatedLabel" required placeholder="e.g. Jordan Reyes · Senior Backend Engineer" /></label>
+            <label className="field sm:col-span-2">
+              <span>Link to a candidate (optional — required for the data to be erased together with them later)</span>
+              <select name="candidateId" defaultValue="">
+                <option value="">No specific candidate</option>
+                {candidates.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.currentTitle}</option>)}
+              </select>
+            </label>
+            <label className="field sm:col-span-2"><span>Related to (display text)</span><input name="relatedLabel" required placeholder="e.g. Jordan Reyes · Senior Backend Engineer" /></label>
             <label className="field"><span>Type</span><select name="type" defaultValue="Call"><option>Call</option><option>Email</option><option>Interview</option><option>Submission</option><option>Reference check</option></select></label>
             <label className="field"><span>Due</span><input name="dueLabel" required placeholder="e.g. Tomorrow, 2:00 PM" /></label>
           </div>

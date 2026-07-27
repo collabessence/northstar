@@ -92,7 +92,12 @@ export const placements = pgTable("placements", {
 export const recruitmentTasks = pgTable("recruitment_tasks", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
-  relatedLabel: text("related_label").notNull(), // e.g. "Mia Chen · Atlas Labs"
+  relatedLabel: text("related_label").notNull(), // e.g. "Mia Chen · Atlas Labs" — display text only
+  // When a task is actually about a specific candidate, this links to them
+  // so the row is cascade-deleted when that candidate's data is erased.
+  // Nullable because a task can be about a client/job order with no single
+  // candidate attached.
+  candidateId: integer("candidate_id").references(() => candidates.id, { onDelete: "cascade" }),
   type: text("type").notNull().default("Call"), // Call | Email | Interview | Submission | Reference check
   dueLabel: text("due_label").notNull(),
   completed: boolean("completed").notNull().default(false),
@@ -118,3 +123,16 @@ export type Candidate = typeof candidates.$inferSelect;
 export type JobOrder = typeof jobOrders.$inferSelect;
 export type Placement = typeof placements.$inferSelect;
 export type RecruitmentTask = typeof recruitmentTasks.$inferSelect;
+
+// Proof that a candidate's data was erased, without retaining any of the
+// erased personal data itself — just a timestamp and a generic note. This
+// exists so a "why isn't this candidate in the system anymore" question can
+// be answered ("their process ended and their data was erased on X")
+// without archiving anything the erasure was supposed to remove.
+export const candidateErasureLog = pgTable("candidate_erasure_log", {
+  id: serial("id").primaryKey(),
+  note: text("note").notNull().default("Recruitment process ended — candidate data erased."),
+  erasedAt: timestamp("erased_at").notNull().defaultNow(),
+});
+
+export type CandidateErasureLogEntry = typeof candidateErasureLog.$inferSelect;

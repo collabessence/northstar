@@ -10,6 +10,13 @@ function ago(ms: number) {
   return new Date(Date.now() - ms);
 }
 
+// Named separately from ago() rather than calling ago(-ms) — a negative
+// duration silently meaning "the future" was exactly the kind of subtle
+// bug that made every "overdue" demo task quietly not overdue at all.
+function inHours(hours: number) {
+  return new Date(Date.now() + hours * HOUR);
+}
+
 /**
  * Inserts sample data — but only if the workspace is currently empty. This
  * is called on demand (from a "Load sample data" action), never
@@ -48,11 +55,16 @@ export async function seedSampleData(): Promise<{ inserted: boolean }> {
     ]);
 
     await db.insert(tasks).values([
-      { title: "Send revised commercial proposal", company: "Atlas Labs", type: "Email", dueLabel: "Due 10:30 AM", dueAt: ago(-2 * HOUR), completed: false },
-      { title: "Discovery call with buying team", company: "North & Finch", type: "Call", dueLabel: "11:00 AM", dueAt: ago(-1 * HOUR), completed: false },
-      { title: "Product walkthrough and Q&A", company: "Vertex AI", type: "Meeting", dueLabel: "2:00 PM", dueAt: ago(-6 * HOUR), completed: false },
-      { title: "Confirm security review owners", company: "Nova Retail", type: "Email", dueLabel: "Due today", dueAt: ago(-3 * HOUR), completed: false },
-      { title: "Share migration timeline", company: "Sundial Energy", type: "Message", dueLabel: "Tomorrow", dueAt: ago(-1 * DAY), completed: false },
+      // Genuinely overdue (past dueAt, not completed) — this is what makes
+      // the automatic "Overdue" badge and notification actually visible
+      // when exploring the app with sample data instead of silently never
+      // firing.
+      { title: "Send revised commercial proposal", company: "Atlas Labs", type: "Email", dueLabel: "Was due 10:30 AM", dueAt: ago(2 * HOUR), completed: false },
+      { title: "Confirm security review owners", company: "Nova Retail", type: "Email", dueLabel: "Was due yesterday", dueAt: ago(1 * DAY), completed: false },
+      // Upcoming (future dueAt, not overdue)
+      { title: "Discovery call with buying team", company: "North & Finch", type: "Call", dueLabel: "11:00 AM", dueAt: inHours(1), completed: false },
+      { title: "Product walkthrough and Q&A", company: "Vertex AI", type: "Meeting", dueLabel: "2:00 PM", dueAt: inHours(6), completed: false },
+      { title: "Share migration timeline", company: "Sundial Energy", type: "Message", dueLabel: "Tomorrow", dueAt: inHours(24), completed: false },
       { title: "Update opportunity notes", company: "Meridian Health", type: "Message", dueLabel: "Completed", dueAt: ago(1 * DAY), completed: true },
     ]);
 

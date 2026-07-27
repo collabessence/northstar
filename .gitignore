@@ -9,6 +9,7 @@ out/
 .env
 .env.*
 !.env.example
+drizzle.config.json
 
 # misc
 .DS_Store

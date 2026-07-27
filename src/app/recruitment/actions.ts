@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db";
-import { candidates, jobOrders, placements, recruitmentClients, recruitmentSnapshots, recruitmentTasks } from "@/db/recruitment-schema";
+import { candidateErasureLog, candidates, jobOrders, placements, recruitmentClients, recruitmentSnapshots, recruitmentTasks } from "@/db/recruitment-schema";
 import { feeForSalary, nextStage, type PipelineStageKey } from "@/lib/recruitment-metrics";
 import { seedRecruitmentSampleData } from "./seed";
 import { eq } from "drizzle-orm";
@@ -115,11 +115,26 @@ export async function createCandidate(input: {
   return { ok: true, message: "Candidate added to your talent pool." };
 }
 
-export async function deleteCandidate(candidateId: number) {
-  if (!Number.isInteger(candidateId)) return { ok: false };
+/**
+ * Ends a candidate's recruitment process and permanently erases everything
+ * about them — profile, contact details, resume notes, and every linked
+ * pipeline entry and task (via cascading foreign keys). Nothing is
+ * archived or soft-deleted. The only trace left behind is a generic,
+ * non-personal log entry proving *that* an erasure happened, for exactly
+ * the kind of "why did this candidate disappear" question a compliance
+ * review might ask — it holds no name, email, or any other personal data.
+ */
+export async function eraseCandidateData(candidateId: number) {
+  if (!Number.isInteger(candidateId)) return { ok: false, message: "Invalid candidate." };
+
+  const [existing] = await db.select({ id: candidates.id }).from(candidates).where(eq(candidates.id, candidateId));
+  if (!existing) return { ok: false, message: "This candidate no longer exists." };
+
   await db.delete(candidates).where(eq(candidates.id, candidateId));
+  await db.insert(candidateErasureLog).values({});
+
   revalidatePath("/recruitment");
-  return { ok: true };
+  return { ok: true, message: "Candidate data permanently erased." };
 }
 
 export async function updateCandidate(
@@ -395,17 +410,19 @@ export async function createRecruitmentTask(input: {
   relatedLabel: string;
   type: string;
   dueLabel: string;
+  candidateId?: number;
 }) {
   const title = input.title.trim();
   const relatedLabel = input.relatedLabel.trim();
   const dueLabel = input.dueLabel.trim();
   const type = validTaskTypes.has(input.type) ? input.type : "Call";
+  const candidateId = input.candidateId && Number.isInteger(input.candidateId) ? input.candidateId : null;
 
   if (!title || !relatedLabel || !dueLabel) {
     return { ok: false, message: "Please complete all required fields." };
   }
 
-  await db.insert(recruitmentTasks).values({ title, relatedLabel, type, dueLabel, completed: false });
+  await db.insert(recruitmentTasks).values({ title, relatedLabel, type, dueLabel, candidateId, completed: false });
   revalidatePath("/recruitment");
   return { ok: true, message: "Activity scheduled." };
 }
@@ -445,6 +462,7 @@ export async function resetRecruitmentWorkspace() {
   await db.delete(recruitmentClients);
   await db.delete(recruitmentTasks);
   await db.delete(recruitmentSnapshots);
+  await db.delete(candidateErasureLog);
   revalidatePath("/recruitment");
   return { ok: true, message: "Workspace cleared." };
 }

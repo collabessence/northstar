@@ -120,12 +120,12 @@ export async function seedRecruitmentSampleData(): Promise<{ inserted: boolean }
     });
 
     await db.insert(recruitmentTasks).values([
-      { title: "Confirm offer acceptance", relatedLabel: "Jordan Reyes · Senior Backend Engineer", type: "Call", dueLabel: "Due today", completed: false },
-      { title: "Collect interview feedback", relatedLabel: "Priya Nair · Product Designer", type: "Reference check", dueLabel: "Due tomorrow", completed: false },
-      { title: "Schedule client submission call", relatedLabel: "Marcus Webb · ML Engineer", type: "Call", dueLabel: "Fri, 2:00 PM", completed: false },
-      { title: "Re-engage idle candidate", relatedLabel: "Sam O'Neill · Backend Engineer", type: "Email", dueLabel: "This week", completed: false },
+      { title: "Confirm offer acceptance", relatedLabel: "Jordan Reyes · Senior Backend Engineer", candidateId: c1.id, type: "Call", dueLabel: "Due today", completed: false },
+      { title: "Collect interview feedback", relatedLabel: "Priya Nair · Product Designer", candidateId: c2.id, type: "Reference check", dueLabel: "Due tomorrow", completed: false },
+      { title: "Schedule client submission call", relatedLabel: "Marcus Webb · ML Engineer", candidateId: c3.id, type: "Call", dueLabel: "Fri, 2:00 PM", completed: false },
+      { title: "Re-engage idle candidate", relatedLabel: "Sam O'Neill · Backend Engineer", candidateId: c5.id, type: "Email", dueLabel: "This week", completed: false },
       { title: "Send updated job brief", relatedLabel: "Kiteworks · Solutions Architect", type: "Email", dueLabel: "Next week", completed: false },
-      { title: "Reference check follow-up", relatedLabel: "Elena Cruz · Engineering Manager", type: "Reference check", dueLabel: "Completed", completed: true },
+      { title: "Reference check follow-up", relatedLabel: "Elena Cruz · Engineering Manager", candidateId: c4.id, type: "Reference check", dueLabel: "Completed", completed: true },
     ]);
 
     return { inserted: true };

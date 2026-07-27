@@ -97,13 +97,24 @@ export function extractName(text: string): { firstName: string | null; lastName:
     .slice(0, 15); // only look near the top of the document
 
   const skipWords = /curriculum|resume|\bcv\b|życiorys/i;
-  const namePattern = /^([\p{Lu}][\p{Ll}\-]+)\s+([\p{Lu}][\p{Ll}\-]+)$/u;
+  // "Jan Kowalski" style (title case).
+  const titleCasePattern = /^([\p{Lu}][\p{Ll}\-]+)\s+([\p{Lu}][\p{Ll}\-]+)$/u;
+  // "JAN KOWALSKI" style — very common as a CV header — every letter
+  // uppercase, two to three words, nothing else on the line.
+  const allCapsPattern = /^([\p{Lu}\-]{2,})\s+([\p{Lu}\-]{2,})(?:\s+([\p{Lu}\-]{2,}))?$/u;
 
   for (const line of lines) {
     if (skipWords.test(line)) continue;
-    const match = line.match(namePattern);
-    if (match) {
-      return { firstName: match[1], lastName: match[2], fullName: `${match[1]} ${match[2]}` };
+    const titleMatch = line.match(titleCasePattern);
+    if (titleMatch) {
+      return { firstName: titleMatch[1], lastName: titleMatch[2], fullName: `${titleMatch[1]} ${titleMatch[2]}` };
+    }
+    const capsMatch = line.match(allCapsPattern);
+    if (capsMatch) {
+      const toTitleCase = (word: string) => word[0] + word.slice(1).toLowerCase();
+      const first = toTitleCase(capsMatch[1]);
+      const last = [capsMatch[2], capsMatch[3]].filter(Boolean).map(toTitleCase).join(" ");
+      return { firstName: first, lastName: last, fullName: `${first} ${last}` };
     }
   }
 
